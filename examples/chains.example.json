@@ -1,0 +1,199 @@
+{
+  "chains": {
+    "ethereum": {
+      "type": "evm",
+      "finality_blocks": 12,
+      "rpc_urls": [
+        "https://ethereum-rpc.publicnode.com",
+        "https://eth-mainnet.public.blastapi.io"
+      ],
+      "expected_chain_id": 1,
+      "display_name": "Ethereum",
+      "launch_date": "2015-07-30",
+      "native_symbol": "ETH",
+      "native_decimals": 18,
+      "min_native": "0.00001",
+      "market_chain": "ethereum",
+      "market_min_liquidity_usd": "10000",
+      "market_min_transfer_usd": "1",
+      "explorer_tx_url": "https://etherscan.io/tx/",
+      "explorer_address_url": "https://etherscan.io/address/",
+      "explorer_token_url": "https://etherscan.io/token/",
+      "scan_unconfirmed": true
+    },
+    "arbitrum": {
+      "type": "evm",
+      "finality_blocks": 20,
+      "rpc_urls": [
+        "https://arbitrum.drpc.org",
+        "https://arbitrum-one.public.blastapi.io"
+      ],
+      "expected_chain_id": 42161,
+      "display_name": "Arbitrum One",
+      "launch_date": "2021-08-31",
+      "native_symbol": "ETH",
+      "native_decimals": 18,
+      "min_native": "0.00001",
+      "market_chain": "arbitrum",
+      "market_min_liquidity_usd": "10000",
+      "market_min_transfer_usd": "1",
+      "explorer_tx_url": "https://arbiscan.io/tx/",
+      "explorer_address_url": "https://arbiscan.io/address/",
+      "explorer_token_url": "https://arbiscan.io/token/",
+      "scan_unconfirmed": true
+    },
+    "base": {
+      "type": "evm",
+      "finality_blocks": 20,
+      "rpc_urls": [
+        "https://base-rpc.publicnode.com",
+        "https://mainnet.base.org"
+      ],
+      "expected_chain_id": 8453,
+      "display_name": "Base",
+      "launch_date": "2023-08-09",
+      "native_symbol": "ETH",
+      "native_decimals": 18,
+      "min_native": "0.00001",
+      "market_chain": "base",
+      "market_min_liquidity_usd": "10000",
+      "market_min_transfer_usd": "1",
+      "explorer_tx_url": "https://basescan.org/tx/",
+      "explorer_address_url": "https://basescan.org/address/",
+      "explorer_token_url": "https://basescan.org/token/",
+      "scan_unconfirmed": true
+    },
+    "bnb": {
+      "type": "evm",
+      "finality_blocks": 15,
+      "rpc_urls": [
+        "https://bsc-rpc.publicnode.com",
+        "https://bsc.rpc.blxrbdn.com"
+      ],
+      "expected_chain_id": 56,
+      "display_name": "BNB Smart Chain",
+      "launch_date": "2020-09-01",
+      "native_symbol": "BNB",
+      "native_decimals": 18,
+      "min_native": "0.0001",
+      "market_chain": "bsc",
+      "market_min_liquidity_usd": "10000",
+      "market_min_transfer_usd": "1",
+      "explorer_tx_url": "https://bscscan.com/tx/",
+      "explorer_address_url": "https://bscscan.com/address/",
+      "explorer_token_url": "https://bscscan.com/token/",
+      "scan_unconfirmed": true
+    },
+    "optimism": {
+      "type": "evm",
+      "finality_blocks": 20,
+      "rpc_urls": [
+        "https://optimism-rpc.publicnode.com",
+        "https://optimism.gateway.tenderly.co"
+      ],
+      "expected_chain_id": 10,
+      "display_name": "OP Mainnet",
+      "launch_date": "2021-01-16",
+      "native_symbol": "ETH",
+      "native_decimals": 18,
+      "min_native": "0.00001",
+      "market_chain": "optimism",
+      "market_min_liquidity_usd": "10000",
+      "market_min_transfer_usd": "1",
+      "explorer_tx_url": "https://optimistic.etherscan.io/tx/",
+      "explorer_address_url": "https://optimistic.etherscan.io/address/",
+      "explorer_token_url": "https://optimistic.etherscan.io/token/",
+      "scan_unconfirmed": true
+    },
+    "avalanche": {
+      "type": "evm",
+      "finality_blocks": 5,
+      "rpc_urls": [
+        "https://api.avax.network/ext/bc/C/rpc",
+        "https://avalanche-c-chain-rpc.publicnode.com"
+      ],
+      "expected_chain_id": 43114,
+      "display_name": "Avalanche C-Chain",
+      "launch_date": "2020-09-21",
+      "native_symbol": "AVAX",
+      "native_decimals": 18,
+      "min_native": "0.001",
+      "market_chain": "avalanche",
+      "market_min_liquidity_usd": "10000",
+      "market_min_transfer_usd": "1",
+      "explorer_tx_url": "https://snowtrace.io/tx/",
+      "explorer_address_url": "https://snowtrace.io/address/",
+      "explorer_token_url": "https://snowtrace.io/token/",
+      "scan_unconfirmed": true
+    },
+    "hyperliquid": {
+      "type": "evm",
+      "finality_blocks": 2,
+      "rpc_urls": [
+        "https://hyperliquid.drpc.org",
+        "https://hyperevm.rpc.sentio.xyz",
+        "https://rpc.hyperlend.finance/archive",
+        "https://rpc.hyperliquid.xyz/evm"
+      ],
+      "expected_chain_id": 999,
+      "expected_genesis_hash": "0xd8fcc13b6a195b88b7b2da3722ff6cad767b13a8c1e9ffb1c73aa9d216d895f0",
+      "display_name": "HyperEVM",
+      "launch_date": "2025-02-18",
+      "native_symbol": "HYPE",
+      "native_decimals": 18,
+      "min_native": "0.001",
+      "market_chain": "hyperevm",
+      "market_min_liquidity_usd": "10000",
+      "market_min_transfer_usd": "1",
+      "explorer_tx_url": "https://hyperevmscan.io/tx/",
+      "explorer_address_url": "https://hyperevmscan.io/address/",
+      "explorer_token_url": "https://hyperevmscan.io/token/",
+      "scan_unconfirmed": true,
+      "genesis_optional_rpc_urls": [
+        "https://rpc.hyperliquid.xyz/evm"
+      ]
+    },
+    "polygon": {
+      "type": "evm",
+      "finality_blocks": 32,
+      "rpc_urls": [
+        "https://polygon.publicnode.com",
+        "https://polygon-bor-rpc.publicnode.com"
+      ],
+      "expected_chain_id": 137,
+      "display_name": "Polygon Mainnet",
+      "launch_date": "2020-05-31",
+      "native_symbol": "POL",
+      "native_decimals": 18,
+      "min_native": "0.001",
+      "market_chain": "polygon",
+      "market_min_liquidity_usd": "10000",
+      "market_min_transfer_usd": "1",
+      "explorer_tx_url": "https://polygonscan.com/tx/",
+      "explorer_address_url": "https://polygonscan.com/address/",
+      "explorer_token_url": "https://polygonscan.com/token/",
+      "scan_unconfirmed": true
+    },
+    "tron": {
+      "type": "tron",
+      "finality_blocks": 2,
+      "rpc_urls": [
+        "https://tron-solidity-rpc.publicnode.com",
+        "https://tron-rpc.publicnode.com"
+      ],
+      "expected_genesis_hash": "00000000000000001ebf88508a03865c71d452e25f4d51194196a1d22b6653dc",
+      "display_name": "TRON",
+      "launch_date": "2018-05-31",
+      "native_symbol": "TRX",
+      "native_decimals": 6,
+      "min_native": "0.1",
+      "market_chain": "tron",
+      "market_min_liquidity_usd": "10000",
+      "market_min_transfer_usd": "1",
+      "explorer_tx_url": "https://tronscan.org/#/transaction/",
+      "explorer_address_url": "https://tronscan.org/#/address/",
+      "explorer_token_url": "https://tronscan.org/#/token20/",
+      "scan_unconfirmed": true
+    }
+  }
+}

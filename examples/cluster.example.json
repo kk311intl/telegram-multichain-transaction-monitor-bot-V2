@@ -1,0 +1,48 @@
+{
+  "primary_node": "primary",
+  "heartbeat_seconds": 5,
+  "scanner_seconds": 315360000,
+  "nodes": {
+    "primary": {
+      "max_chains": 9,
+      "ip_address": "192.0.2.10"
+    },
+    "worker-1": {
+      "max_chains": 3,
+      "ip_address": "192.0.2.11"
+    },
+    "worker-2": {
+      "max_chains": 2,
+      "ip_address": "192.0.2.12"
+    }
+  },
+  "chains": {
+    "tron": {
+      "preferred_node": "primary"
+    },
+    "bnb": {
+      "preferred_node": "primary"
+    },
+    "polygon": {
+      "preferred_node": "primary"
+    },
+    "base": {
+      "preferred_node": "primary"
+    },
+    "ethereum": {
+      "preferred_node": "worker-1"
+    },
+    "arbitrum": {
+      "preferred_node": "worker-1"
+    },
+    "optimism": {
+      "preferred_node": "worker-1"
+    },
+    "avalanche": {
+      "preferred_node": "worker-2"
+    },
+    "hyperliquid": {
+      "preferred_node": "worker-2"
+    }
+  }
+}

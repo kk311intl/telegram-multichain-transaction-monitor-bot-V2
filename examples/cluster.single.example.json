@@ -1,0 +1,10 @@
+{
+  "primary_node": "primary",
+  "heartbeat_seconds": 5,
+  "nodes": {
+    "primary": {"max_chains": 1}
+  },
+  "chains": {
+    "ethereum": {"preferred_node": "primary"}
+  }
+}

@@ -1,0 +1,32 @@
+[Unit]
+Description=Crypto Monitor V2 full-chain worker
+After=network-online.target crypto-monitor-v2-coordinator.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=crypto-monitor-v2
+Group=crypto-monitor-v2
+EnvironmentFile=/etc/crypto-monitor-v2/cluster.env
+EnvironmentFile=-/etc/crypto-monitor-v2/worker-tls.env
+WorkingDirectory=/opt/crypto-monitor-v2
+ExecStart=/usr/bin/python3 /opt/crypto-monitor-v2/cluster.py --cluster-config /etc/crypto-monitor-v2/cluster.json worker --chains-config /etc/crypto-monitor-v2/chains.json --state-dir /var/lib/crypto-monitor-v2/worker
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/crypto-monitor-v2
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+TasksMax=128
+UMask=0077
+InaccessiblePaths=-/var/lib/crypto-monitor-v2-coordinator -/var/lib/crypto-address-monitor -/etc/crypto-address-monitor
+CPUWeight=50
+IOWeight=25
+
+[Install]
+WantedBy=multi-user.target

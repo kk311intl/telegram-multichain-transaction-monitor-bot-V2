@@ -1,0 +1,4 @@
+[Service]
+MemoryHigh=768M
+MemoryMax=1G
+CPUQuota=100%
