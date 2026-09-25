@@ -194,6 +194,50 @@
       "explorer_address_url": "https://tronscan.org/#/address/",
       "explorer_token_url": "https://tronscan.org/#/token20/",
       "scan_unconfirmed": true
+    },
+    "bitcoin": {
+      "type": "bitcoin",
+      "finality_blocks": 5,
+      "rpc_urls": [
+        "https://bitcoin-rpc.publicnode.com",
+        "https://bitcoin.drpc.org"
+      ],
+      "display_name": "Bitcoin",
+      "launch_date": "2009-01-03",
+      "native_symbol": "BTC",
+      "native_decimals": 8,
+      "min_native": "0.00001",
+      "explorer_tx_url": "https://mempool.space/tx/",
+      "explorer_address_url": "https://mempool.space/address/",
+      "scan_unconfirmed": true,
+      "rpc_timeout": 20,
+      "max_response_mib": 32,
+      "idle_poll_seconds": 10
+    },
+    "solana": {
+      "type": "solana",
+      "finality_blocks": 0,
+      "rpc_urls": [
+        "https://solana-rpc.publicnode.com",
+        "https://api.mainnet-beta.solana.com"
+      ],
+      "display_name": "Solana",
+      "launch_date": "2020-03-16",
+      "native_symbol": "SOL",
+      "native_decimals": 9,
+      "min_native": "0.00001",
+      "market_chain": "solana",
+      "market_min_liquidity_usd": "10000",
+      "market_min_transfer_usd": "1",
+      "explorer_tx_url": "https://solscan.io/tx/",
+      "explorer_address_url": "https://solscan.io/account/",
+      "explorer_token_url": "https://solscan.io/token/",
+      "scan_unconfirmed": true,
+      "rpc_timeout": 20,
+      "max_response_mib": 32,
+      "max_supported_transaction_version": 1,
+      "idle_poll_seconds": 1,
+      "target_batch_mib": 32
     }
   }
 }

@@ -12,10 +12,20 @@ from functools import wraps
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import urlsplit
 from .rpc_policy import RateLimit, retry_seconds
 
 
 RPC_RETRY_DELAYS = (15, 30, 60, 120, 300)
+
+
+def rpc_urls(config):
+    urls = list(dict.fromkeys(config.get('rpc_urls', [])))
+    if not urls or any(urlsplit(url).scheme != 'https' or not urlsplit(url).hostname for url in urls):
+        raise ValueError('rpc_urls must contain valid HTTPS endpoints')
+    return urls
+
+
 TRANSPORT_ERRORS = (
     urllib.error.URLError,
     TimeoutError,
@@ -146,7 +156,11 @@ class JsonClient:
         self, url: str | list[str], timeout: int = 30,
         headers: dict[str, str] | None = None,
         fallback_urls: list[str] | None = None,
+        max_response_bytes: int = 16 * 1024 * 1024,
     ):
+        if type(max_response_bytes) is not int or not 1024 <= max_response_bytes <= 64*1024*1024:
+            raise ValueError('RPC response limit must be between 1 KiB and 64 MiB')
+        self.max_response_bytes = max_response_bytes
         primary = [url] if isinstance(url, str) else list(dict.fromkeys(url))
         fallback = [item for item in dict.fromkeys(fallback_urls or []) if item not in primary]
         self.fallback_urls = fallback
@@ -497,7 +511,7 @@ class JsonClient:
         raw = b""
         try:
             with self._opener.open(request, timeout=min(self.timeout,self._remaining())) as response:
-                maximum = 16 * 1024 * 1024
+                maximum = self.max_response_bytes
                 if int(response.headers.get("Content-Length", "0")) > maximum:
                     raise OSError("response exceeds 16 MiB")
                 chunks = []

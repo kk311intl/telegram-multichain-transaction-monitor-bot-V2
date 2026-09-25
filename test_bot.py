@@ -250,7 +250,7 @@ class BotTest(unittest.TestCase):
         text=app.status_text()
         table=html.unescape(text.split('<pre>')[1].split('</pre>')[0]).splitlines()
         self.assertEqual([row.split()[1] for row in table[1:]],
-                         ['Ethereum','TRON','Polygon','BNB','Avalanche','OP','Arbitrum','Base','HyperEVM'])
+                         ['Bitcoin','Ethereum','TRON','Solana','Polygon','BNB','Avalanche','OP','Arbitrum','Base','HyperEVM'])
         self.assertEqual(len({len(row) for row in table[1:]}),1)
         app.config['chains']['ethereum']['status_name']='<ETH>'
         self.assertIn('&lt;ETH&gt;',app.status_text())

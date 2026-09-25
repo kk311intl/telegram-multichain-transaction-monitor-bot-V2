@@ -5,6 +5,7 @@ import json
 import re
 import sqlite3
 import time
+from chain_identity import chain_kind, valid_identity
 from contextlib import closing
 from pathlib import Path
 
@@ -36,7 +37,8 @@ def validate_config(config):
 
 
 class LeaseStore:
-    def __init__(self, path, config, verifier=None, now=None):
+    def __init__(self, path, config, verifier=None, now=None, chain_types=None):
+        self.chain_types = chain_types
         validate_config(config)
         self.path, self.config, self.verifier = str(path), config, verifier
         self.clock_wall, self.clock_mono = time.time(), time.monotonic()
@@ -106,7 +108,7 @@ class LeaseStore:
             if cursor is None:
                 continue
             digest = item.get('block_hash', '')
-            if type(cursor) is not int or not 0 <= cursor < 10**12 or not isinstance(digest, str) or not re.fullmatch(r'(0x)?[0-9a-f]{64}', digest):
+            if type(cursor) is not int or not 0 <= cursor < 10**12 or not valid_identity(digest, chain_kind(chain, self.chain_types)):
                 raise ValueError('invalid checkpoint')
             run_id = item.get('run_id')
             if not isinstance(run_id, str) or not re.fullmatch(r'[0-9a-f]{32}', run_id):

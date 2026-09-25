@@ -444,7 +444,7 @@ class Store:
             if self.owner_user_id is not None:
                 recipients = user_ids if user_ids is not None else {self.owner_user_id}
                 if address_ids is not None:
-                    current = self.addresses(event.chain, include_evm=event.chain!='tron', user_id=-1)
+                    current = self.addresses(event.chain, include_evm=event.address.startswith('0x'), user_id=-1)
                     recipients = recipients & {r['user_id'] for r in current if r['id'] in address_ids
                         and r['address']==event.address and r['watch_direction'] in ('both',event.direction)}
                 self.db.executemany(

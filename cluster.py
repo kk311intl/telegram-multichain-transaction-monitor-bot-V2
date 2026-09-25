@@ -175,7 +175,8 @@ def run_coordinator(args: argparse.Namespace) -> int:
         raise ValueError('coordinator requires mutual TLS or explicit private HTTP opt-in')
     addresses = node_addresses(config, tls)
     adapters = {name: build_adapter(name, settings) for name, settings in chain_config.items()}
-    store = LeaseStore(args.db, config, verifier=CheckpointVerifier(adapters))
+    chain_types = {name: cfg['type'] for name, cfg in chain_config.items()}
+    store = LeaseStore(args.db, config, verifier=CheckpointVerifier(adapters), chain_types=chain_types)
     server = BoundedServer((args.bind, args.port), CoordinatorHandler)
     server.store = store  # type: ignore[attr-defined]
     server.node_ips = addresses  # type: ignore[attr-defined]
@@ -192,7 +193,7 @@ def run_coordinator(args: argparse.Namespace) -> int:
         initial = Store(state_path, owner)
         initial.configure_owner(owner)
         initial.db.close()
-        server.feed = FeedStore(state_path)
+        server.feed = FeedStore(state_path, chain_types)
         server.chain_config = chain_config
         def bot_main():
             App(token,owner,{"chains":chain_config},state_path,store).run()

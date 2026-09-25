@@ -9,7 +9,7 @@ from threading import Lock, local
 from scanner_adapters import build_adapter
 from .decoder import metadata
 from .market import DexScreenerOracle, MarketAssessment
-from .security import SecurityDeferred
+from .security import SecurityDeferred, security_chain
 from .store import Store
 from . import lookup_retry
 from .settings import BotSettings
@@ -58,7 +58,7 @@ class TokenEnrichment:
 
     def warnings(self, store, config, name, asset):
         warnings=[]
-        chain='tron' if config['type']=='tron' else str(config['expected_chain_id'])
+        chain=security_chain(config)
         security=json.loads(store.meta(f'goplus_token:{chain}:{asset}','{}'))
         state=security.get('state')
         if not security:

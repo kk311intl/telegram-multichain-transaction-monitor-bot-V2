@@ -10,7 +10,8 @@ from types import SimpleNamespace
 
 from scanner_adapters import build_adapter
 from block_validation import header
-from .common import normalize_evm, tron_to_hex
+from chain_identity import normalize_address
+from functools import partial
 from .decoder import decode
 from .feed_store import FeedStore
 from .recent_cache import RecentCache
@@ -28,7 +29,7 @@ LOG = logging.getLogger(__name__)
 
 STATUS_NAMES = {'ethereum':'Ethereum', 'tron':'TRON', 'polygon':'Polygon', 'bnb':'BNB',
                 'avalanche':'Avalanche', 'optimism':'OP', 'arbitrum':'Arbitrum',
-                'base':'Base', 'hyperliquid':'HyperEVM'}
+                'base':'Base', 'hyperliquid':'HyperEVM', 'bitcoin':'Bitcoin', 'solana':'Solana'}
 
 
 def status_cell(value, width, right=False):
@@ -50,14 +51,11 @@ class App(TelegramControllerMixin):
         self.store = Store(state_path, owner)
         self.store.configure_owner(owner)
         self.telegram = Telegram(token, state_path, settings=self.settings)
-        self.feed = FeedStore(state_path)
+        self.feed = FeedStore(state_path, {name: cfg['type'] for name,cfg in config['chains'].items()})
         self.started_at = int(time.time())
         self.active_user_id = owner
         self.pending_inputs, self.status_refreshes, self.latest_menu_message_ids = {}, {}, {}
-        def normalize_tron(address):
-            tron_to_hex(address)
-            return address.strip()
-        self.adapters = {name:SimpleNamespace(config=cfg,normalize=normalize_evm if cfg['type']=='evm' else normalize_tron)
+        self.adapters = {name:SimpleNamespace(config=cfg,normalize=partial(normalize_address,cfg['type']))
                          for name,cfg in config['chains'].items()}
         self.evm_group = [name for name,cfg in config['chains'].items() if cfg['type']=='evm']
         self.notification_dispatcher = NotificationDispatcher(
@@ -105,8 +103,8 @@ class App(TelegramControllerMixin):
         lines = ['<b>技術設定</b>','全鏈下載 → 地址比對 → 協調節點核對 → 用戶通知',
                  '租約 20s · 心跳 5s · 卡死 120s · 只向主節點故障轉移',
                  '啟動從當時最新區塊開始，不補停機舊交易',
-                 '交易未確認 → 確認／重組時原地更新；EVM 主幣直接轉帳與 ERC-20、TRON TRX／TRC-20',
-                 '不含合約內部主幣轉帳、NFT、尚未上鏈的 mempool 交易',
+                 '交易未確認 → 確認／重組時原地更新；'+self.asset_scope(),
+                 '不含 EVM 合約內部主幣轉帳、NFT 專用解析、尚未上鏈的 mempool 交易',
                  f'命中資料記憶體快取上限 {self.recent_cache.max_bytes//(1024*1024)} MiB；確認按區塊合併核對',
                  'GoPlus 免費風險檢查＋市場過濾，結果快取 24h；不代表真幣保證',
                  (f'流動性門檻 US${html.escape(shared[0])} · 轉帳門檻 US${html.escape(shared[1])}' if shared else '各鏈過濾門檻見下方'),
@@ -116,8 +114,15 @@ class App(TelegramControllerMixin):
             cfg = self.config['chains'][name]
             if not shared:
                 lines.append(f'{html.escape(self._chain_label(name))} · 流動性 US${html.escape(str(cfg.get("market_min_liquidity_usd","10000")))} · 轉帳 US${html.escape(str(cfg.get("market_min_transfer_usd","1")))}')
-            lines.append(f'{html.escape(self._chain_label(name))} · 安全距離 {cfg["finality_blocks"]} 區塊 · 候選 RPC {len(cfg["rpc_urls"])}')
+            finality = f'finalized＋{cfg["finality_blocks"]} slot' if cfg['type']=='solana' else f'{cfg["finality_blocks"]} 區塊'
+            lines.append(f'{html.escape(self._chain_label(name))} · 安全距離 {finality} · 候選 RPC {len(cfg["rpc_urls"])}')
         return '\n'.join(lines)
+
+    def asset_scope(self):
+        kinds = {cfg['type'] for cfg in self.config['chains'].values()}
+        labels = {'evm':'EVM 主幣直接轉帳與 ERC-20', 'tron':'TRON TRX／TRC-20',
+                  'bitcoin':'BTC 地址淨收支（轉出含手續費）', 'solana':'SOL／SPL／Token-2022 標準轉帳'}
+        return '、'.join(label for kind,label in labels.items() if kind in kinds)
 
     def consume(self, name):
         store = Store(self.state_path,self.owner)

@@ -13,6 +13,8 @@ def digest(value, evm=True):
 
 
 def header(adapter, height):
+    if adapter.config['type'] in ('bitcoin', 'solana'):
+        return adapter.header(height)
     if adapter.config['type'] == 'evm':
         block = adapter.rpc.rpc('eth_getBlockByNumber', [hex(height), False], result_validator=lambda b: bool(evm_header(b, height)))
         return evm_header(block, height)

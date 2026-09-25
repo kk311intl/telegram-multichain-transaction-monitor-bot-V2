@@ -19,8 +19,12 @@
 |---|---|
 | Ethereum、BNB Smart Chain、Polygon、Avalanche、Arbitrum One、OP Mainnet、Base、HyperEVM | 原生幣直接轉帳、ERC-20 Transfer |
 | TRON | TRX、TRC-20 Transfer |
+| Bitcoin | BTC；按地址計算每筆交易的淨收支，扣除找零，轉出含手續費 |
+| Solana | SOL System Program 轉帳、SPL Token／Token-2022 標準轉帳，包含 inner instructions |
 
-只啟用需要的鏈即可。EVM 合約內部原生幣轉帳、NFT、未上鏈 mempool 不在範圍內。「交易未確認」指已進入區塊、尚未達設定確認距離的交易。
+只啟用需要的鏈即可。EVM 合約內部原生幣轉帳、BTC 銘文／Runes、NFT 專用解析、未上鏈 mempool 不在範圍內。「交易未確認」指已進入區塊、尚未達確認條件的交易；BTC 範例採 6 次確認，SOL 從 confirmed 更新至 finalized。
+
+SOL 不把交易費、租金或任意程式造成的餘額變化當作轉帳；代幣帳戶依交易內的擁有者資料匹配錢包，地址與 mint 區分大小寫。Mint 沒有可直接信任的 ticker，通知使用 `SPL` 加 mint 短碼並附瀏覽器連結。Token-2022 顯示轉帳指令金額，含轉帳稅的實收金額可能不同；特殊擴充指令不解析。
 
 **啟動、重啟及故障接管都從當時最新鏈頭開始，不補停機期間的歷史交易。** 全鏈掃描是即時下載與處理，不是保存整條區塊鏈的完整節點。用途以個人地址為主，不適合交易所熱錢包、高頻量化地址或需要無缺漏歷史帳本的場合。
 
@@ -45,11 +49,14 @@
 | 部署方式 | 建議 CPU／記憶體 | SSD | 穩定可用頻寬 |
 |---|---|---|---|
 | 單機、先啟用 1–3 條鏈 | 2–4 vCPU、4 GiB | 30 GiB | 100 Mbps |
-| 單機、啟用全部 9 條鏈 | 4–8 vCPU、8 GiB | 60 GiB | 200 Mbps，保留尖峰餘量 |
+| 單機、啟用表列 9 條 EVM／TRON 鏈 | 4–8 vCPU、8 GiB | 60 GiB | 200 Mbps，保留尖峰餘量 |
+| Solana 專用 Worker | 4 vCPU、8 GiB | 30 GiB | 500 Mbps，並取得足夠的完整區塊 RPC 配額 |
 | 獨立協調器與 Bot | 2 vCPU、2–4 GiB | 30 GiB | 50–100 Mbps |
 | 分散式 Worker，每臺數條鏈 | 2–4 vCPU、2–4 GiB | 20–40 GiB | 100 Mbps；重載鏈增加餘量 |
 
 接管 Worker 須按全部鏈的負載配置。使用現代 CPU、穩定路由及足夠 RPC 配額，往往比單純增加候選 RPC 更有效。快取預設上限 256 MiB，可調大，但 systemd 記憶體上限還要留給解析、執行緒與資料庫。SSD 不需容納全鏈歷史，使用量主要由命中交易、保留天數和日誌決定。
+
+BTC 平均出塊較慢，但完整區塊與輸入資料會產生下載尖峰。SOL 完整交易 JSON 的持續流量較高；上表是容量規劃起點，不是公共 RPC 吞吐保證。免費端點可能無法持續追上鏈頭，應先量測實際延遲、流量與限流情況。
 
 ## 開始部署
 
@@ -67,6 +74,8 @@ python3 build_release.py
 3. 只在協調器設定 `BOT_TOKEN`、`OWNER_USER_ID`。為各 Worker 簽發獨立憑證；同機也可透過本機 HTTPS 通信。
 4. 按 [部署文件](docs/DEPLOYMENT.md) 安裝、設定權限並啟動相應角色。程式升級與實際設定分離。
 
+設定目錄包含 11 條鏈；單機範例只啟用 Ethereum，多機範例啟用 9 條 EVM／TRON 鏈。BTC、SOL 需自行加入 `cluster.json.chains` 並分配節點，僅更新程式或設定目錄不會自動啟用。鏈參數與啟用範例見 [客製化設定](docs/CUSTOMIZATION.md#bitcoin-與-solana)。
+
 | 文件 | 內容 |
 |---|---|
 | [部署與傳輸](docs/DEPLOYMENT.md) | 單機／多機、TLS、systemd、擴容、升級與回復 |
@@ -83,7 +92,7 @@ python3 build_release.py
 
 ## 原始碼與授權
 
-`cluster.py`、`lease_store.py` 負責協調；`benchmark.py` 是全鏈掃描引擎；`scanner_adapters.py`、`monitor/` 處理鏈與 RPC；`bot_runtime/` 分離 Telegram、儲存、交易核對及過濾。`release-manifest.json` 明列可封裝的檔案。
+`cluster.py`、`lease_store.py` 負責協調；`benchmark.py` 是全鏈掃描引擎；`scanner_adapters.py`、`bitcoin_chain.py`、`solana_chain.py` 分離鏈協議，`monitor/` 管理共用 RPC；`bot_runtime/` 分離 Telegram、儲存、交易核對及過濾。`release-manifest.json` 明列可封裝的檔案。
 
 採用 [GPL-3.0-only](LICENSE)。
 

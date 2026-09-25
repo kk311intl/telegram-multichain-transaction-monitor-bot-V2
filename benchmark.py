@@ -26,7 +26,7 @@ from scanner_adapters import EvmAdapter, TronAdapter, TRANSFER_TOPIC, build_adap
 
 CHAIN_ORDER = (
     "ethereum", "tron", "polygon", "bnb", "avalanche",
-    "optimism", "arbitrum", "base", "hyperliquid",
+    "optimism", "arbitrum", "base", "hyperliquid", "bitcoin", "solana",
 )
 MAX_BATCH_BLOCKS = 64
 TARGET_BATCH_BYTES = 8 * 1024 * 1024
@@ -35,16 +35,16 @@ RPC_CACHE_SECONDS = 86400
 STATE_INTERVAL_SECONDS = 5
 
 
-def next_batch_span(span, size, elapsed, lag, block_interval):
+def next_batch_span(span, size, elapsed, lag, block_interval, target_bytes=TARGET_BATCH_BYTES):
     # Slow but small responses may still benefit from amortizing round trips.
     target = min(8.0, max(TARGET_BATCH_SECONDS, span * block_interval * 0.8))
-    if size > TARGET_BATCH_BYTES * 2:
+    if size > target_bytes * 2:
         return max(1, span // 2)
-    if size < TARGET_BATCH_BYTES and lag > span * 4 and elapsed < 8:
+    if size < target_bytes and lag > span * 4 and elapsed < 8:
         return min(MAX_BATCH_BLOCKS, span * 2)
     if elapsed > target * 2:
         return max(1, span // 2)
-    if size < TARGET_BATCH_BYTES and lag > span and elapsed < target:
+    if size < target_bytes and lag > span and elapsed < target:
         return min(MAX_BATCH_BLOCKS, span * 2)
     return span
 
@@ -213,7 +213,11 @@ class FullChainBenchmark:
         candidates = list(dict.fromkeys(config["rpc_urls"]))
         cached = cached_rpc_urls(self.output.parent / "rpc-cache.json", candidates, allow_changed=True)
         selected = dict(config)
-        selected.update(rpc_urls=cached + [u for u in candidates if u not in cached], rpc_timeout=12)
+        selected.update(rpc_urls=cached + [u for u in candidates if u not in cached], rpc_timeout=config.get('rpc_timeout',12))
+        if 'idle_poll_seconds' in selected and not 0.25 <= float(selected['idle_poll_seconds']) <= 60:
+            raise ValueError('idle_poll_seconds must be between 0.25 and 60')
+        if not 1 <= int(selected.get('target_batch_mib',8)) <= 64:
+            raise ValueError('target_batch_mib must be between 1 and 64')
         self._update(name, status="RPC adaptive", qualified=0, candidates=len(candidates))
         return selected, []
 
@@ -258,17 +262,8 @@ class FullChainBenchmark:
                 if tx.get("from", "").lower() in watched or (tx.get("to") or "").lower() in watched
                 else {"hash":tx["hash"]} for tx in block["transactions"]]
             return {k:block[k] for k in ("number","hash","parentHash","transactions")}
-        for base in range(start, end + 1, 4):
-            futures = {h: self.block_pool.submit(fetch_block, h) for h in range(base, min(end+1, base+4))}
-            try:
-                for height, future in futures.items():
-                    blocks[height] = future.result(timeout=adapter.rpc._remaining())
-            finally:
-                for future in futures.values():
-                    future.cancel()
-                drain_deadline = adapter.rpc._operation_deadline or time.monotonic()+1
-                _, pending = wait(futures.values(), timeout=max(0, drain_deadline-time.monotonic()))
-                self.pending_block_reads = {f for f in getattr(self, 'pending_block_reads', ()) if not f.done()} | pending
+        for chunk in self._block_chunks(adapter, range(start,end+1), fetch_block):
+            blocks.update(chunk)
         previous = self.checkpoints.get(start-1)
         for height, block in blocks.items():
             current, parent = evm_header(block, height)
@@ -289,6 +284,46 @@ class FullChainBenchmark:
 
     def _tron_batch(self, adapter, start, end):
         return self._rpc_batch(adapter, start, end, self._tron_batch_from_endpoint)
+
+    def _block_chunks(self, adapter, heights, fetch_block):
+        heights = list(heights)
+        for offset in range(0,len(heights),4):
+            futures = {h:self.block_pool.submit(fetch_block,h) for h in heights[offset:offset+4]}
+            try:
+                values = [(height,future.result(timeout=adapter.rpc._remaining())) for height,future in futures.items()]
+            finally:
+                for future in futures.values():
+                    future.cancel()
+                deadline = adapter.rpc._operation_deadline or time.monotonic()+1
+                _,pending = wait(futures.values(),timeout=max(0,deadline-time.monotonic()))
+                self.pending_block_reads = {f for f in getattr(self,'pending_block_reads',()) if not f.done()} | pending
+            yield values
+            del values, futures
+
+    def _full_block_batch(self, adapter, start, end):
+        feed = getattr(self, 'feed', None)
+        watched = feed.refresh() if feed else set()
+        previous_height, previous = start-1, self.checkpoints.get(start-1)
+        hashes, hits, transactions = {}, [], 0
+        for chunk in self._block_chunks(adapter, adapter.heights(start,end), adapter.block):
+            for height, block in chunk:
+                current, parent = adapter.block_header(block, height)
+                if previous is not None and (parent != previous or adapter.parent_height(block, height) != previous_height):
+                    raise ChainMismatch('block parent continuity mismatch')
+                txs = adapter.transactions(block)
+                if watched:
+                    hits.extend(dict(txid=txid, height=height, hash=current) for txid, tx in txs
+                                if adapter.addresses(tx) & watched)
+                hashes[height] = current
+                previous_height, previous = height, current
+                transactions += len(txs)
+            del chunk, block, txs
+        if not hashes or header(adapter, previous_height)[0] != previous:
+            raise ChainMismatch('block changed during download')
+        if feed:
+            feed.submit(hits)
+        self.batch_hashes = hashes
+        return transactions, 0
 
     def _tron_batch_from_endpoint(self, adapter, start, end):
         transactions = logs_count = 0
@@ -465,11 +500,13 @@ class FullChainBenchmark:
                 lag = max(0, safe_head - cursor)
                 max_lag = max(max_lag, lag)
                 if lag == 0:
-                    poll_sleep = min(3.0, max(0.25, block_interval * 0.35))
+                    poll_sleep = float(config['idle_poll_seconds']) if 'idle_poll_seconds' in config else min(3.0, max(0.25, block_interval * 0.35))
                     self._update(name, poll_sleep=poll_sleep)
                     time.sleep(poll_sleep)
                 else:
                     batch_end = min(safe_head, cursor + span)
+                    if hasattr(adapter, 'batch_end'):
+                        batch_end = adapter.batch_end(cursor+1, batch_end, safe_head)
                     self._update(name, phase='batch', batch_start=cursor+1, batch_end=batch_end)
                     before = self._stats(adapter)
                     batch_started = time.monotonic()
@@ -478,12 +515,12 @@ class FullChainBenchmark:
                     elif isinstance(adapter, TronAdapter):
                         txs, logs = self._tron_batch(adapter, cursor + 1, batch_end)
                     else:
-                        raise RuntimeError("unsupported adapter type")
+                        txs, logs = self._rpc_batch(adapter, cursor+1, batch_end, self._full_block_batch)
                     after = self._stats(adapter)
                     elapsed = max(0.001, time.monotonic() - batch_started)
-                    blocks = batch_end - cursor
+                    blocks = len(self.batch_hashes)
                     batch_bytes = max(0, after[2] - before[2])
-                    cursor = batch_end
+                    cursor = max(self.batch_hashes)
                     self.checkpoints.update(self.batch_hashes)
                     self.checkpoints = {h:d for h,d in self.checkpoints.items() if h >= cursor - 128}
                     atomic_json(self.output.parent / "checkpoints.json", self.checkpoints)
@@ -492,7 +529,8 @@ class FullChainBenchmark:
                     totals["transactions"] += txs
                     totals["logs"] += logs
                     consecutive_errors = 0
-                    span = next_batch_span(span,batch_bytes,elapsed,lag,block_interval)
+                    span = next_batch_span(span,batch_bytes,elapsed,lag,block_interval,
+                                           int(config.get('target_batch_mib',8))*1024*1024)
                     samples.append((time.monotonic(), batch_bytes, blocks, txs, logs))
                 self.last_success_monotonic = time.monotonic()
                 self.last_cycle_monotonic = self.last_success_monotonic

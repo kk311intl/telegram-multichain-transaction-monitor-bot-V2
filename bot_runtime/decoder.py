@@ -33,8 +33,11 @@ def metadata(adapter, store, asset):
             result = adapter.rpc.post({'owner_address':tron_to_hex(asset), 'contract_address':tron_to_hex(asset),
                                       'function_selector':signature, 'parameter':''}, '/wallet/triggerconstantcontract')
             return result['constant_result'][0]
-        decimals = int(call('0x313ce567','decimals()').removeprefix('0x'),16)
-        symbol = abi_text(call('0x95d89b41','symbol()'))
+        if adapter.config['type'] == 'solana':
+            symbol, decimals = adapter.token_metadata(asset)
+        else:
+            decimals = int(call('0x313ce567','decimals()').removeprefix('0x'),16)
+            symbol = abi_text(call('0x95d89b41','symbol()'))
         if not 0 <= decimals <= 255:
             raise ValueError('invalid decimals')
         with store.db:
@@ -68,6 +71,17 @@ def decode(adapter, store, hit, watched, cache=None, metadata_lookup=None):
             found.append(Event(adapter.name,txid,height,hit['hash'],address,direction,asset,symbol,raw,
                                decimals,counterparty,index,block_timestamp=timestamp,metadata_complete=complete))
 
+    if adapter.config['type'] in ('bitcoin', 'solana'):
+        current = remember(('header',height), lambda:header(adapter,height), lambda h:bool(h), ttl=2)[0]
+        if current != hit['hash']:
+            return []
+        block = remember(('full-block',current), lambda:adapter.block(height),
+                         lambda b:adapter.block_header(b,height)[0] == current)
+        tx = next((tx for key,tx in adapter.transactions(block) if key == txid), None)
+        if tx is None:
+            raise ValueError('transaction absent from canonical block')
+        return adapter.events(block, height, txid, tx, watched,
+                              lambda asset:(metadata_lookup or metadata)(adapter,store,asset))
     if evm:
         block = remember(('evm-block',height),lambda:rpc.rpc('eth_getBlockByNumber',[hex(height),False]),lambda b:bool(evm_header(b,height)),ttl=2)
         digest,_ = evm_header(block,height)

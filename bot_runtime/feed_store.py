@@ -1,12 +1,13 @@
 """Private, bounded and durable handoff from scanners to the Bot."""
-import re
 import sqlite3
 import time
+from chain_identity import chain_kind, valid_identity
 from contextlib import closing
 
 
 class FeedStore:
-    def __init__(self, path):
+    def __init__(self, path, chain_types=None):
+        self.chain_types = chain_types
         self.path = str(path)
         with closing(self.connect()) as db, db:
             db.executescript('''
@@ -40,8 +41,8 @@ class FeedStore:
                 raise ValueError('invalid hit fields')
             if type(hit['height']) is not int or not 0 <= hit['height'] < 10**12:
                 raise ValueError('invalid height')
-            prefix = '' if chain == 'tron' else '0x'
-            if any(not isinstance(hit[k], str) or not re.fullmatch(prefix + '[0-9a-f]{64}', hit[k]) for k in ('txid','hash')):
+            kind = chain_kind(chain, self.chain_types)
+            if not valid_identity(hit['txid'], kind, transaction=True) or not valid_identity(hit['hash'], kind):
                 raise ValueError('invalid transaction identity')
         with closing(self.connect()) as db, db:
             db.execute('BEGIN IMMEDIATE')

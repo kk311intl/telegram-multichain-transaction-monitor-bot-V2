@@ -493,8 +493,13 @@ class TelegramControllerMixin:
         adapter = self.adapters.get(name)
         return str(adapter.config.get("display_name", name) if adapter else name)
     def _address_format_hint(self, name: str) -> str:
-        if name == "tron":
+        kind = self.adapters[name].config['type'] if name in self.adapters else name
+        if kind == "tron":
             return "TRON 主網 Base58Check 地址，例如 <code>T...</code>"
+        if kind == 'bitcoin':
+            return 'BTC 主網地址：<code>1...</code>、<code>3...</code> 或 <code>bc1...</code>'
+        if kind == 'solana':
+            return 'Solana 32-byte Base58 地址，大小寫須完全一致'
         return "0x 開頭的 20-byte EVM 十六進位地址，例如 <code>0x...</code>"
     def menu(self) -> str:
         return (
@@ -519,7 +524,7 @@ class TelegramControllerMixin:
             "監控從啟用時開始，不補報歷史或停機期間的交易。\n\n"
             "/start 開啟主選單；未授權時取得 ID，交給管理員授權。"
         )
-        return guidance + "\n\n" + self.chains_text()
+        return guidance + "\n\n" + self.asset_scope() + "\n\n" + self.chains_text()
     def handle_pending_text(self, message: dict[str, Any], text: str) -> None:
         state = self.pending_input
         if not state:

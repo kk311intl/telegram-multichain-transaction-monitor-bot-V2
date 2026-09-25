@@ -63,6 +63,8 @@ class DexScreenerOracle:
             if not isinstance(result, list):
                 raise RuntimeError("DEX Screener returned an invalid response")
             pairs = result
+            def same_address(value):
+                return value.lower() == contract.lower() if config.get('type', 'evm') == 'evm' else value == contract
             candidates: list[tuple[Decimal, Decimal]] = []
             for pair in pairs:
                 if pair.get("chainId") != chain:
@@ -70,9 +72,9 @@ class DexScreenerOracle:
                 base = str(pair.get("baseToken", {}).get("address", ""))
                 quote = str(pair.get("quoteToken", {}).get("address", ""))
                 price = None
-                if base.lower() == contract.lower():
+                if same_address(base):
                     price = self._decimal(pair.get("priceUsd"))
-                elif quote.lower() == contract.lower():
+                elif same_address(quote):
                     base_usd = self._decimal(pair.get("priceUsd"))
                     base_in_quote = self._decimal(pair.get("priceNative"))
                     if base_usd is not None and base_in_quote is not None and base_in_quote > 0:

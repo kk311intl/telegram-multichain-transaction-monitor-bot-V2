@@ -3,20 +3,13 @@ from __future__ import annotations
 from typing import Any
 import json
 import time
-from urllib.parse import urlsplit
-
-from monitor.rpc import JsonClient
+from monitor.rpc import JsonClient, rpc_urls
 from block_validation import evm_header, tron_header
+from bitcoin_chain import BitcoinAdapter
+from solana_chain import SolanaAdapter
 
 
 TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
-
-
-def _rpc_urls(config: dict[str, Any]) -> list[str]:
-    urls = list(dict.fromkeys(config.get("rpc_urls", [])))
-    if not urls or any(urlsplit(url).scheme != "https" or not urlsplit(url).hostname for url in urls):
-        raise ValueError("rpc_urls must contain valid HTTPS endpoints")
-    return urls
 
 
 class EvmAdapter:
@@ -25,7 +18,7 @@ class EvmAdapter:
         self.config = config
         self.expected_chain_id = int(config["expected_chain_id"])
         self.finality_blocks = max(0, int(config["finality_blocks"]))
-        self.rpc = JsonClient(_rpc_urls(config), timeout=max(3, int(config.get("rpc_timeout", 12))))
+        self.rpc = JsonClient(rpc_urls(config), timeout=max(3, int(config.get("rpc_timeout", 12))))
         self.expected_genesis_hash = config.get('expected_genesis_hash','').lower()
         optional = config.get('genesis_optional_rpc_urls', [])
         if not isinstance(optional, list) or any(not isinstance(url, str) or url not in self.rpc.urls for url in optional):
@@ -96,7 +89,7 @@ class TronAdapter:
         self.block_prefix = '/wallet' if config.get('scan_unconfirmed') else '/walletsolidity'
         self.expected_genesis_hash = str(config["expected_genesis_hash"]).lower()
         self.finality_blocks = max(0, int(config["finality_blocks"]))
-        self.rpc = JsonClient(_rpc_urls(config), timeout=max(3, int(config.get("rpc_timeout", 12))))
+        self.rpc = JsonClient(rpc_urls(config), timeout=max(3, int(config.get("rpc_timeout", 12))))
         self.rpc.set_endpoint_validator(self._validate, f'tron-infos-1:{self.expected_genesis_hash}:{self.block_prefix}')
 
     def _validate(self, url: str) -> None:
@@ -132,10 +125,14 @@ class TronAdapter:
         return max(0,self._height('/walletsolidity')-self.finality_blocks)
 
 
-def build_adapter(name: str, config: dict[str, Any]) -> EvmAdapter | TronAdapter:
+def build_adapter(name: str, config: dict[str, Any]) -> EvmAdapter | TronAdapter | BitcoinAdapter | SolanaAdapter:
     kind = config.get("type")
     if kind == "evm":
         return EvmAdapter(name, config)
     if kind == "tron":
         return TronAdapter(name, config)
+    if kind == "bitcoin":
+        return BitcoinAdapter(name, config)
+    if kind == "solana":
+        return SolanaAdapter(name, config)
     raise ValueError(f"unsupported chain type: {kind}")

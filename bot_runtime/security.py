@@ -9,6 +9,10 @@ from .market import get_json
 from . import lookup_retry
 
 
+def security_chain(config):
+    return str(config['expected_chain_id']) if config['type']=='evm' else config['type']
+
+
 class SecurityDeferred(Exception):
     """Keep the hit pending until free API budget is available."""
 
@@ -38,7 +42,7 @@ class TokenSecurity:
             raise
 
     def assess(self, store, config, asset):
-        chain = 'tron' if config['type'] == 'tron' else str(config['expected_chain_id'])
+        chain = security_chain(config)
         name = f'goplus_token:{chain}:{asset}'
         cached = json.loads(store.meta(name, '{}'))
         if cached and time.time() < cached['expires']:
@@ -53,13 +57,14 @@ class TokenSecurity:
                     raise ValueError('invalid GoPlus chain list')
                 supported = dict(ids=[str(v['id']) for v in values], expires=time.time()+86400)
                 store.set_meta('goplus_supported', json.dumps(supported))
-            if chain not in supported['ids']:
+            if chain not in supported['ids'] and chain != 'solana':
                 state, risk, ttl = 'unsupported', '', 86400
             else:
-                values = self.request(store, 'token_security/' + chain + '?' + urlencode({'contract_addresses':asset}))
+                route = 'solana/token_security' if chain == 'solana' else 'token_security/'+chain
+                values = self.request(store, route + '?' + urlencode({'contract_addresses':asset}))
                 if not isinstance(values, dict):
                     raise ValueError('invalid GoPlus token response')
-                data = values.get(asset) if chain == 'tron' else next((v for k,v in values.items() if k.lower()==asset.lower()), None)
+                data = values.get(asset) if config['type'] != 'evm' else next((v for k,v in values.items() if k.lower()==asset.lower()), None)
                 if data is None or data == {}:
                     state, risk, ttl = 'unknown', '', 3600
                 elif not isinstance(data, dict):
@@ -69,6 +74,8 @@ class TokenSecurity:
                     risk = ('goplus_fake_token' if isinstance(fake,dict) and str(fake.get('value')) == '1'
                             else 'goplus_honeypot' if str(data.get('is_honeypot')) == '1' else '')
                     state, ttl = ('risk' if risk else 'no_flag'), 86400
+                    if chain == 'solana' and not risk and fake is None and 'is_honeypot' not in data:
+                        state = 'unknown'
             store.set_meta(name, json.dumps(dict(state=state,risk=risk,checked_at=time.time(),expires=time.time()+ttl)))
             lookup_retry.clear(store, 'security', chain, asset)
             return risk
