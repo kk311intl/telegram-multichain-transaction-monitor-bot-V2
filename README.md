@@ -10,7 +10,7 @@
 - **RPC 自適應**：按成功吞吐、延遲與錯誤優選，限流端點有序冷卻，背景重新檢查；健康快取跨重啟保存。
 - **交易風險過濾**：結合 GoPlus 風險信號與 DEX Screener 流動性／轉帳價值；持久化 Token 與價格快取，減少重複查詢。
 - **可恢復的通知**：鏈上未確認交易先通知，確認後更新；每帳戶獨立處理 Telegram 429，互動優先，避免一個帳戶阻塞其他人。
-- **直接公網通信**：節點使用雙向 TLS，核對憑證、租約及 epoch；沒有 VPN 或 Tailscale 依賴。Worker 不持有 Bot Token 或用戶 ID。
+- **安全的節點通信**：節點直接透過 HTTPS 雙向 TLS 通信，核對憑證、租約及 epoch；Worker 不持有 Bot Token 或用戶 ID。
 - **輕量依賴**：Python 標準函式庫、SQLite、Linux systemd，不需要 pip 套件或外部資料庫。
 
 ## 監控範圍
@@ -34,13 +34,13 @@
            用戶隔離、風險過濾 → Telegram
 ```
 
-協調器包含 Bot、交易核對與 SQLite；Worker 執行分配給它的鏈。`cluster.json` 的 `chains` 決定實際啟用範圍，`preferred_node` 指定日常分工，`primary_node` 指定其他 Worker 故障時的接管者。節點名稱及部署位置由你決定，不綁定雲端商或固定三臺機器。
+協調器包含 Bot、交易核對與 SQLite；Worker 執行分配給它的鏈。`cluster.json` 的 `chains` 決定實際啟用範圍，`preferred_node` 指定日常分工，`primary_node` 指定其他 Worker 故障時的接管者。可依負載增加 Worker 及調整各角色的部署位置。
 
 加入 Worker 後可把部分鏈移過去；同一條鏈同時由一個租約持有者掃描，不會因增加 Worker 自動拆分同一條鏈。主 Worker 故障時不把它的工作反向轉給小型 Worker；協調器目前是單一服務，沒有自動多主切換。接管節點需為所有啟用鏈保留容量。
 
 ## 建議伺服器配置
 
-以下是**留有餘量的起步建議，不是最低要求或容量保證**。以少量個人用戶、一般地址活動為前提，vCPU 性能、鏈上活動與 RPC 限額都會影響結果。
+以下配置適合作為少量個人用戶、一般地址活動的起點，已預留運行餘量。實際需求取決於 vCPU 性能、鏈上活動、地址命中量與 RPC 限額。
 
 | 部署方式 | 建議 CPU／記憶體 | SSD | 穩定可用頻寬 |
 |---|---|---|---|
@@ -85,6 +85,6 @@ python3 build_release.py
 
 `cluster.py`、`lease_store.py` 負責協調；`benchmark.py` 是全鏈掃描引擎；`scanner_adapters.py`、`monitor/` 處理鏈與 RPC；`bot_runtime/` 分離 Telegram、儲存、交易核對及過濾。`release-manifest.json` 明列可封裝的檔案。
 
-採用 [GPL-3.0-only](LICENSE)。文件及 Bot 介面以中文提供；授權條款保留官方原文。個人設定、憑證、執行資料及 `personal/` 不納入 Git。**公開版本保留 Bot 地址匯入／匯出，不包含伺服器定時／異機備份系統。**
+採用 [GPL-3.0-only](LICENSE)。
 
 公共 RPC 與免費查詢 API 的完整性、容量及可用性不由本程式保證。風險過濾只是輔助信號，兩項查詢均無法判定時會標示提醒；沒有穩定幣白名單。Telegram 發送與本地 SQLite 不具跨系統原子性，不承諾通知恰好一次。

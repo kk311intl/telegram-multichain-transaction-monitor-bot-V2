@@ -1,6 +1,6 @@
 # 客製化設定
 
-共用程式不內嵌部署者的帳戶、主機、使用政策或時區。複製 `examples/bot.env.example` 到自己的私有環境檔，正式服務由 `/etc/crypto-monitor-v2/bot.env` 讀取；修改後重啟協調器。所有偏好由 `BotSettings` 一次解析、驗證並注入 UI／通知／快取／維護，不由普通用戶的備份匯入覆寫。
+複製 `examples/bot.env.example` 至 `/etc/crypto-monitor-v2/bot.env`，填寫 Bot Token、所有者及偏好設定；修改後重啟協調器。設定會同步套用至介面、通知、快取與維護工作，普通用戶的地址匯入不會覆寫這些部署設定。
 
 | 環境變數 | 預設 | 可設範圍／作用 |
 |---|---:|---|
@@ -35,7 +35,5 @@ Token 與所有者仍透過 `BOT_TOKEN`、`OWNER_USER_ID` 提供。錯誤設定�
 `cluster.json.chains` 只保留需要啟用的鏈；`chains.json` 可保留完整設定目錄，Bot 與掃描器都只使用啟用項。`nodes`、`primary_node`、`preferred_node`、`max_chains` 決定節點與分工；TLS 模式的 IP 可省略，單機／多機均可。協調器可獨立部署，不必出現在 Worker 清單。
 
 心跳預設 5 秒，租約 20 秒；建議保持預設，任意加大間隔可能讓租約過期。systemd CPU／記憶體限制用部署 drop-in；狀態路徑、設定路徑可從 `cluster.py --help` 及各角色 `--help` 查看。憑證、切換流程與增加節點見 [部署文件](DEPLOYMENT.md)。
-
-自用備份系統不在公開範圍；只能在各自私有部署目錄配置。Bot 用戶地址匯入／匯出是共用功能，與伺服器備份分開。
 
 EVM 的 `genesis_optional_rpc_urls` 預設為空，只可填入 `rpc_urls` 中明確信任的完整 URL。列入的端點免查創世區塊，但仍核對鏈 ID、最新區塊時間／高度、完整區塊與 Transfer 日誌；適合不提供創世區塊的官方 RPC。範例只列 Hyperliquid 官方端點，其他端點仍驗證設定的創世 hash。變更此清單會使該鏈資格快取重新驗證，既有冷卻及限流狀態仍保留。

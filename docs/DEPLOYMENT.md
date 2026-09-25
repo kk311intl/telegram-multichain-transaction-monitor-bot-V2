@@ -26,11 +26,11 @@ TLS 模式以每節點憑證識別身分，`ip_address` 可省略，允許同一
 | `/var/lib/crypto-monitor-v2-coordinator/` | 租約與 Bot SQLite |
 | `/var/lib/crypto-monitor-v2/worker/` | Scanner 租約、游標、RPC 快取及日誌 |
 
-`examples/` 只有假資料和空憑證欄位。從範例複製配置到上述外部位置，程式升級不覆寫它們。服務名稱中的 v2 為相容部署識別；Bot UI 不展示此版本字樣。
+`examples/` 提供配置範本，憑證欄位需自行填寫。將配置放在上述外部位置，程式升級不覆寫它們。
 
 ## 公網雙向 TLS
 
-Worker 的心跳、地址名單與命中回報共用 `CLUSTER_COORDINATOR=https://coordinator.example.org:18765`，直接走公網，服務單元不依賴任何 VPN 或 Tailscale。同機 Worker 可連本機 HTTPS 位址，但憑證 SAN 必須包含該位址。鏈 RPC 也直接連各鏈供應商。TLS 失敗不自動降成 HTTP，重導向被拒絕，不套用系統 HTTP proxy。
+Worker 的心跳、地址名單與命中回報共用 `CLUSTER_COORDINATOR=https://coordinator.example.org:18765`。同機 Worker 可連本機 HTTPS 位址，但憑證 SAN 必須包含該位址。鏈 RPC 直接連各鏈供應商。TLS 失敗不自動降成 HTTP，重導向被拒絕，不套用系統 HTTP proxy。
 
 協調器要求由私有 CA 簽發的客戶端憑證，憑證中唯一 CN 必須等於 `cluster.json` 的節點名稱，且必須等於請求中的 `node`；通過 TLS 也不能冒用另一節點或租約。客戶端驗證協調器 CA、有效期與 SAN 主機名。最低 TLS 1.2，16 個併發連線、5 秒連線讀取／握手期限，避免慢握手阻塞主接受循環；不構成完整網際網路 DDoS 防護，仍應使用防火牆。
 
@@ -110,12 +110,10 @@ sudo python3 /opt/crypto-monitor-v2/cluster.py \
 
 需要從私網明文切換至 TLS 時：
 
-1. 保留既有設定及一致 SQLite 快照；不要把個人快照上傳到公開倉庫。
+1. 保存既有設定及一致 SQLite 快照。
 2. 將原程式目錄內的實際 `cluster.json`、`chains.json` 搬入 `/etc/crypto-monitor-v2/`，不能以公開範例覆蓋真實配置。
 3. 先簽發並離線校驗每節點憑證，確認服務帳戶可讀取；準備新 HTTPS 環境檔與防火牆規則。
 4. 排定切換，更新協調器與 Worker 後核對憑證身分、心跳、租約、游標前進及權限拒絕。不能先把 Worker 指向仍提供 HTTP 的協調器。
 5. 發生故障，還原舊程式 symlink、舊設定／環境檔再重啟。任何重啟仍從當時最新區塊開始，不補停機舊交易。
 
 舊私網 HTTP 必須明確設定 `CLUSTER_ALLOW_PLAINTEXT=1`，僅在受控私網使用來源 IP 授權；同時存在 TLS 配置時禁止客戶端降級。這是舊部署相容功能，不是公網方案。
-
-Bot 用戶備份只處理該用戶自己的地址。伺服器定時／異機備份、SSH 備份帳戶及離線恢復工具不屬公開程式，部署者自行管理。
