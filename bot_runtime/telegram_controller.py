@@ -481,14 +481,9 @@ class TelegramControllerMixin:
             [(
                 "⏸ 暫停監控" if row["enabled"] else "▶️ 恢復監控",
                 f"enabled:{row['id']}:{0 if row['enabled'] else 1}",
-            )],
-            [("✅ 全部方向" if row["watch_direction"] == "both" else "全部方向", f"dir:{row['id']}:both")],
-            [
-                ("✅ 只轉入" if row["watch_direction"] == "in" else "只轉入", f"dir:{row['id']}:in"),
-                ("✅ 只轉出" if row["watch_direction"] == "out" else "只轉出", f"dir:{row['id']}:out"),
-            ],
-            [("✏️ 改標籤", f"edit:{row['id']}"), ("🗑 刪除", f"delask:{row['id']}")],
-            [("⬅️ 地址列表", "menu:list"), ("🏠 主選單", "menu:main")],
+            ), ("✏️ 改標籤", f"edit:{row['id']}")],
+            [("↕️ 監控方向", f"directions:{row['id']}"), ("🗑 刪除", f"delask:{row['id']}")],
+            [("🏠 主選單", "menu:main"), ("⬅️ 地址列表", "menu:list")],
         ])
         return text, keyboard
     def _chain_label(self, name: str) -> str:
@@ -519,7 +514,7 @@ class TelegramControllerMixin:
             "<b>使用說明</b>\n\n"
             f"{self.usage_text()}\n"
             "• 新增地址：選擇鏈、輸入地址，可加上標籤。\n"
-            "• 地址管理：修改標籤、暫停或刪除，設定轉入／轉出方向。\n"
+            "• 地址管理：修改標籤、暫停或刪除；點「監控方向」設定全部／只轉入／只轉出。\n"
             "• 運行狀態：查看各鏈監控情況。\n"
             "• 過濾記錄：查看風險、低流動性及低價值交易。\n"
             "• 備份管理：匯出或匯入自己的地址與設定。\n\n"
@@ -749,7 +744,7 @@ class TelegramControllerMixin:
                 if isinstance(prompt_message_id, int) and prompt_message_id > 0:
                     self.pending_input["prompt_message_id"] = prompt_message_id
                     self.pending_input["prompt_chat_id"] = user_id
-            elif data.startswith(("addr:", "dir:", "enabled:", "scope:", "edit:", "delask:", "delete:")):
+            elif data.startswith(("addr:", "directions:", "dir:", "enabled:", "scope:", "edit:", "delask:", "delete:")):
                 self._address_callback(data, user_id, message, show)
             else:
                 show("按鈕已失效，請返回主選單。", self.main_keyboard())
@@ -759,7 +754,17 @@ class TelegramControllerMixin:
             show(f"操作失敗：<code>{html.escape(str(exc))}</code>", self.main_keyboard())
     def _address_callback(self, data, user_id, message, show):
         """Handle address actions after callback authorization; keep owner-scoped queries."""
-        if data.startswith("addr:"):
+        if data.startswith("directions:"):
+            self.pending_input = None
+            row = self.store.address(int(data.split(":", 1)[1]), user_id)
+            if not row:
+                raise ValueError("找不到該地址")
+            choices=[('both','全部方向'),('in','只轉入'),('out','只轉出')]
+            buttons=[[(('✅ ' if row['watch_direction']==value else '')+label,f"dir:{row['id']}:{value}")]
+                     for value,label in choices]
+            buttons.append([('⬅️ 返回',f"addr:{row['id']}")])
+            show(f"<b>監控方向 · {html.escape(str(row['label']))}</b>\n選擇要接收的交易方向。",self._keyboard(buttons))
+        elif data.startswith("addr:"):
             self.pending_input = None
             row = self.store.address(int(data.split(":", 1)[1]), user_id)
             if not row:

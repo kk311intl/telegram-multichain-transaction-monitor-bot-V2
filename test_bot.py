@@ -92,7 +92,7 @@ class BotTest(unittest.TestCase):
         app.store.add('ethereum',A,'private owner label',100)
         row=dict(app.store.addresses(user_id=100)[0])
         app.edit_menu_message=Mock()
-        for action in ['addr','dir','enabled','scope','edit','delask','delete']:
+        for action in ['addr','directions','dir','enabled','scope','edit','delask','delete']:
             suffix=':out' if action=='dir' else ':0' if action in {'enabled','scope'} else ''
             query={'from':{'id':200},'message':self.message(200,''),'data':f'{action}:{row["id"]}{suffix}'}
             with self.subTest(action=action),patch('bot_runtime.telegram_controller.LOG.exception'):
@@ -102,6 +102,17 @@ class BotTest(unittest.TestCase):
                 self.assertNotIn('private owner label',app.edit_menu_message.call_args.args[1])
         app.callback({'from':{'id':100},'message':self.message(100,''),'data':f'enabled:{row["id"]}:0'})
         self.assertFalse(app.store.address(row['id'],100)['enabled'])
+        _,keyboard=app.address_detail(app.store.address(row['id'],100))
+        self.assertEqual([[b['callback_data'] for b in line] for line in keyboard['inline_keyboard']],
+                         [[f"enabled:{row['id']}:1",f"edit:{row['id']}"],
+                          [f"directions:{row['id']}",f"delask:{row['id']}"],['menu:main','menu:list']])
+        app.callback({'from':{'id':100},'message':self.message(100,''),'data':f"directions:{row['id']}"})
+        menu=app.edit_menu_message.call_args.args[2]['inline_keyboard']
+        self.assertEqual([line[0]['callback_data'] for line in menu],
+                         [f"dir:{row['id']}:{value}" for value in ('both','in','out')]+[f"addr:{row['id']}"])
+        self.assertTrue(menu[0][0]['text'].startswith('✅'))
+        app.callback({'from':{'id':100},'message':self.message(100,''),'data':f"dir:{row['id']}:in"})
+        self.assertEqual(app.store.address(row['id'],100)['watch_direction'],'in')
 
     def test_custom_ui_uses_settings_and_removes_obsolete_help(self):
         from bot_runtime.settings import BotSettings
