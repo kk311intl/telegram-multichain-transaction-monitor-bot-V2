@@ -34,6 +34,30 @@ class FakeTelegram:
 
 
 class BotTest(unittest.TestCase):
+    def test_address_pages_show_full_copyable_addresses_and_keep_user_isolation(self):
+        from dataclasses import replace
+        from unittest.mock import Mock
+        app=self.app
+        app.settings=replace(app.settings,address_page_size=1)
+        app.store.authorize_user(200)
+        app.store.add('ethereum',A,'first',100)
+        app.store.add('ethereum',B,'second',100)
+        private='0x'+'9'*40
+        app.store.add('ethereum',private,'private',200)
+        app.edit_menu_message=Mock()
+        rows=app.store.addresses(user_id=100)
+        for data,index in [('menu:list',0),('page:1',1),('page:999',1),('page:-1',0)]:
+            app.callback({'from':{'id':100},'message':self.message(100,''),'data':data})
+            text,keyboard=app.edit_menu_message.call_args.args[1:]
+            self.assertIn(f"<code>{rows[index]['address']}</code>",text)
+            self.assertNotIn(rows[1-index]['address'],text)
+            self.assertNotIn(private,text)
+            self.assertEqual(keyboard['inline_keyboard'][0][0]['callback_data'],f"addr:{rows[index]['id']}")
+        detail,_=app.address_detail(rows[0])
+        self.assertIn(f"<code>{rows[0]['address']}</code>",detail)
+        app.callback({'from':{'id':100},'message':self.message(100,''),'data':f"delete:{rows[0]['id']}"})
+        self.assertIn(f"<code>{rows[1]['address']}</code>",app.edit_menu_message.call_args.args[1])
+
     def test_legacy_schema_upgrade_preserves_owner_deliveries_and_is_repeatable(self):
         path=Path(self.temp.name)/'legacy.sqlite3'
         legacy=Store(path)

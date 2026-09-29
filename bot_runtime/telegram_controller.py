@@ -434,13 +434,21 @@ class TelegramControllerMixin:
         rows = [choices[index:index + 2] for index in range(0, len(choices), 2)]
         rows.append([("⬅️ 主選單", "menu:main")])
         return self._keyboard(rows)
-    def address_list_keyboard(self, page: int = 0) -> dict[str, Any]:
+    def address_list_page(self, page: int = 0) -> tuple[str, dict[str, Any]]:
         rows = self.store.addresses(user_id=self.active_user_id)
         page_size = self.settings.address_page_size
         pages = max(1, (len(rows) + page_size - 1) // page_size)
         page = max(0, min(page, pages - 1))
         buttons: list[list[tuple[str, str]]] = []
+        lines = [
+            "<b>地址管理</b>\n點按地址可複製；選擇下方按鈕進行設定。",
+            "↕️ 全部方向 · ⬇️ 只轉入 · ⬆️ 只轉出 · ⏸ 已暫停",
+        ] if rows else ["尚未監控任何地址。"]
         for row in rows[page * page_size:(page + 1) * page_size]:
+            lines.append(
+                f"\n#{row['id']} · {html.escape(self._chain_label(row['chain']))}\n"
+                f"<code>{html.escape(str(row['address']))}</code>"
+            )
             label = str(row["label"])
             if len(label) > 24:
                 label = label[:23] + "…"
@@ -462,7 +470,7 @@ class TelegramControllerMixin:
                 navigation.append(("▶️", f"page:{page + 1}"))
             buttons.append(navigation)
         buttons.append([("➕ 新增", "menu:add"), ("⬅️ 主選單", "menu:main")])
-        return self._keyboard(buttons)
+        return "\n".join(lines), self._keyboard(buttons)
     def address_detail(self, row: Any) -> tuple[str, dict[str, Any]]:
         direction_labels = {"both": "全部方向", "in": "只轉入", "out": "只轉出"}
         direction = direction_labels.get(row["watch_direction"], "全部方向")
@@ -470,7 +478,7 @@ class TelegramControllerMixin:
         text = (
             f"<b>管理 #{row['id']} · {html.escape(str(row['label']))}</b>\n"
             f"鏈：<code>{html.escape(self._chain_label(row['chain']))}</code>\n"
-            f"地址：<code>{html.escape(self._short_identifier(str(row['address'])))}</code>\n"
+            f"地址：<code>{html.escape(str(row['address']))}</code>\n"
             f"狀態：{state}\n方向：{direction}"
         )
         keyboard = self._keyboard([
@@ -662,21 +670,10 @@ class TelegramControllerMixin:
             elif data == "menu:add":
                 self.pending_input = None
                 show("<b>選擇要監控的鏈</b>", self.add_keyboard())
-            elif data == "menu:list":
+            elif data == "menu:list" or data.startswith("page:"):
                 self.pending_input = None
-                text = (
-                    "<b>地址管理</b>\n選擇一個地址進行設定。\n"
-                    "↕️ 全部方向 · ⬇️ 只轉入 · ⬆️ 只轉出 · ⏸ 已暫停"
-                    if self.store.addresses(user_id=user_id) else "尚未監控任何地址。"
-                )
-                show(text, self.address_list_keyboard())
-            elif data.startswith("page:"):
-                page = int(data.split(":", 1)[1])
-                show(
-                    "<b>地址管理</b>\n選擇一個地址進行設定。\n"
-                    "↕️ 全部方向 · ⬇️ 只轉入 · ⬆️ 只轉出 · ⏸ 已暫停",
-                    self.address_list_keyboard(page),
-                )
+                page = 0 if data == "menu:list" else int(data.split(":", 1)[1])
+                show(*self.address_list_page(page))
             elif data == "menu:status":
                 page = "status"
                 text = self.status_text()
@@ -825,7 +822,8 @@ class TelegramControllerMixin:
             if not self.store.remove(row_id, user_id):
                 raise ValueError("找不到該地址")
             self.pending_input = None
-            show("地址已刪除。", self.address_list_keyboard())
+            text, keyboard = self.address_list_page()
+            show("地址已刪除。\n\n" + text, keyboard)
 
     def command(self, message: dict[str, Any]) -> None:
         if message.get("chat", {}).get("type") != "private":
