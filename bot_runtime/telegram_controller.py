@@ -441,14 +441,10 @@ class TelegramControllerMixin:
         page = max(0, min(page, pages - 1))
         buttons: list[list[tuple[str, str]]] = []
         lines = [
-            "<b>地址管理</b>\n點按地址可複製；選擇下方按鈕進行設定。",
+            "<b>地址管理</b>\n選擇一個地址進行設定。",
             "↕️ 全部方向 · ⬇️ 只轉入 · ⬆️ 只轉出 · ⏸ 已暫停",
         ] if rows else ["尚未監控任何地址。"]
         for row in rows[page * page_size:(page + 1) * page_size]:
-            lines.append(
-                f"\n#{row['id']} · {html.escape(self._chain_label(row['chain']))}\n"
-                f"<code>{html.escape(str(row['address']))}</code>"
-            )
             label = str(row["label"])
             if len(label) > 24:
                 label = label[:23] + "…"
