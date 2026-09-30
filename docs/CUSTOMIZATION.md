@@ -38,6 +38,31 @@ Token 與所有者仍透過 `BOT_TOKEN`、`OWNER_USER_ID` 提供。錯誤設定�
 
 EVM 的 `genesis_optional_rpc_urls` 預設為空，只可填入 `rpc_urls` 中明確信任的完整 URL。列入的端點免查創世區塊，但仍核對鏈 ID、最新區塊時間／高度、完整區塊與 Transfer 日誌；適合不提供創世區塊的官方 RPC。範例只列 Hyperliquid 官方端點，其他端點仍驗證設定的創世 hash。變更此清單會使該鏈資格快取重新驗證，既有冷卻及限流狀態仍保留。
 
+### RPC 請求能力與間隔
+
+EVM 可設定 `verify_receipt_logs`（布林），指定是否額外用收據核對日誌；預設只有鏈 ID 999 啟用，其他鏈維持既有必要核對。
+
+EVM／TRON 的 `rpc_limits` 以已配置的完整 RPC URL 為鍵，可填入以下欄位；未設定時沿用原本自適應間隔。EVM 日誌按端點上限分段，全部成功才推進批次。
+
+| 欄位 | 預設 | 範圍／作用 |
+|---|---|---|
+| `min_interval_seconds` | 0 | 0–60 秒，與自適應限速取較嚴格者 |
+| `max_log_blocks` | 64 | 1–10000，EVM 單次日誌查詢區塊上限 |
+| `provider` | URL 主機名 | 1–128 字元；同一程序中相同值共用間隔及限流冷卻 |
+
+例如在對應鏈加入：
+
+```json
+"rpc_limits": {
+  "https://rpc.hyperliquid.xyz/evm": {
+    "min_interval_seconds": 0.75,
+    "max_log_blocks": 50
+  }
+}
+```
+
+此設定是該程序的預算，不代表供應商保證的額度。多個程序或主機共用同 IP／Key 時，需自行分配總請求預算。
+
 ## Bitcoin 與 Solana
 
 `chains.example.json` 包含 `bitcoin`、`solana` 的主網 RPC 與顯示設定。將需要的項目加入外部 `cluster.json` 的 `chains`，例如 `"bitcoin": {"preferred_node": "primary"}`、`"solana": {"preferred_node": "worker-1"}`；同步提高相關節點的 `max_chains`，主接管節點須能容納全部啟用鏈。可單獨啟用任一條，也可使用自訂鏈鍵名，`type` 仍須是 `bitcoin` 或 `solana`。

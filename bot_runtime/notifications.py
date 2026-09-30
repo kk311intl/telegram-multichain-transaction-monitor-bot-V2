@@ -135,13 +135,15 @@ class NotificationPump:
         self.cursor = 0
         self.next_pressure = 0
         self.next_check = {}
+        self.users, self.next_users = [], 0
 
     def deliver(self, user, prefer_edit):
         key = f'notification:{user}'
         self.inflight[key] = time.monotonic()
         store = None
         try:
-            store = Store(self.path, self.owner)
+            # App initializes/migrates the database before starting background workers.
+            store = Store(self.path, self.owner, initialize=False)
             rate = getattr(self.dispatcher.telegram, "rate", None)
             with rate.background("notification") if rate else nullcontext():
                 self.dispatcher.flush(store, user_id=user, single=True, prefer_edit=prefer_edit)
@@ -163,10 +165,16 @@ class NotificationPump:
                 self.next_check[user] = time.monotonic()+1
         if paused:
             return 1
-        users = [r['user_id'] for r in store.authorized_users()]
+        now = time.monotonic()
+        if now >= self.next_users:
+            self.users = store.notification_users()
+            self.next_users = now+1
+            active = set(self.users) | self.pending.keys()
+            self.turns = {u:n for u,n in self.turns.items() if u in active}
+        users = self.users
+        self.next_check = {u:deadline for u,deadline in self.next_check.items() if deadline>now}
         if not users:
             return 1
-        self.next_check = {user:deadline for user,deadline in self.next_check.items() if user in users}
         wait = 1.0  # Discover newly queued events/authorized users within one second.
         start = self.cursor % len(users)
         for offset in range(len(users)):

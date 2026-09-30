@@ -180,6 +180,10 @@ def _migrate_event_columns(db):
 def _create_indexes(db):
     db.executescript(
         """
+            CREATE INDEX IF NOT EXISTS addresses_enabled_lookup
+              ON addresses(chain,address,user_id) WHERE enabled=1;
+            CREATE INDEX IF NOT EXISTS pressure_alerts_due
+              ON pressure_alerts(user_id,next_try) WHERE sent=0;
             CREATE INDEX IF NOT EXISTS events_finality_due
               ON events(chain,finality_next_at,block_height)
               WHERE confirmation_state='pending' AND orphaned=0;

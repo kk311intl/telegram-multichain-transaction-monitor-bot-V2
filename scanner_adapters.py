@@ -19,6 +19,10 @@ class EvmAdapter:
         self.expected_chain_id = int(config["expected_chain_id"])
         self.finality_blocks = max(0, int(config["finality_blocks"]))
         self.rpc = JsonClient(rpc_urls(config), timeout=max(3, int(config.get("rpc_timeout", 12))))
+        self.rpc.configure_endpoints(config.get('rpc_limits',{}))
+        self.verify_receipt_logs = config.get('verify_receipt_logs', self.expected_chain_id == 999)
+        if type(self.verify_receipt_logs) is not bool:
+            raise ValueError('verify_receipt_logs must be boolean')
         self.expected_genesis_hash = config.get('expected_genesis_hash','').lower()
         optional = config.get('genesis_optional_rpc_urls', [])
         if not isinstance(optional, list) or any(not isinstance(url, str) or url not in self.rpc.urls for url in optional):
@@ -90,6 +94,7 @@ class TronAdapter:
         self.expected_genesis_hash = str(config["expected_genesis_hash"]).lower()
         self.finality_blocks = max(0, int(config["finality_blocks"]))
         self.rpc = JsonClient(rpc_urls(config), timeout=max(3, int(config.get("rpc_timeout", 12))))
+        self.rpc.configure_endpoints(config.get('rpc_limits',{}))
         self.rpc.set_endpoint_validator(self._validate, f'tron-infos-1:{self.expected_genesis_hash}:{self.block_prefix}')
 
     def _validate(self, url: str) -> None:

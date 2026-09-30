@@ -17,6 +17,7 @@ class FeedStore:
                   attempts INTEGER NOT NULL DEFAULT 0, done INTEGER NOT NULL DEFAULT 0,
                   PRIMARY KEY(chain,txid,hash));
                 CREATE INDEX IF NOT EXISTS hits_due ON scan_hits(done,next_try);
+                CREATE INDEX IF NOT EXISTS hits_retention ON scan_hits(seen) WHERE done<>0;
                 CREATE TABLE IF NOT EXISTS token_metadata (
                   chain TEXT NOT NULL, asset TEXT NOT NULL, symbol TEXT NOT NULL,
                   decimals INTEGER NOT NULL, PRIMARY KEY(chain,asset));
@@ -67,4 +68,6 @@ class FeedStore:
 
     def cleanup(self):
         with closing(self.connect()) as db, db:
-            db.execute('DELETE FROM scan_hits WHERE done<>0 AND seen<?', (time.time()-7*86400,))
+            db.execute('''DELETE FROM scan_hits WHERE rowid IN (
+                SELECT rowid FROM scan_hits WHERE done<>0 AND seen<? ORDER BY seen LIMIT 2000)''',
+                (time.time()-7*86400,))

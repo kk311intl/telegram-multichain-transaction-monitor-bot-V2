@@ -76,13 +76,16 @@ def parse_user_backup(
         direction = str(raw.get("watch_direction", "both"))
         if direction not in {"both", "in", "out"}:
             raise ValueError("備份中的監控方向無效")
+        enabled = raw.get("enabled", True)
+        if type(enabled) is not bool and not (type(enabled) is int and enabled in (0, 1)):
+            raise ValueError("備份中的啟用狀態必須為 true／false 或 0／1")
         try:
             created_at = int(raw.get("created_at", now))
         except (TypeError, ValueError):
             created_at = now
         restored[(chain, address)] = {
             "chain": chain, "address": address, "label": label,
-            "enabled": bool(raw.get("enabled", True)),
+            "enabled": bool(enabled),
             "watch_direction": direction,
             "created_at": max(0, min(created_at, now)),
         }

@@ -43,6 +43,24 @@ class ParallelBlockTest(unittest.TestCase):
                 self.assertEqual(len(b.pending_block_reads),1)
             finally:release.set()
 
+    def test_log_range_limit_splits_requests_without_omitting_blocks(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from types import SimpleNamespace
+        b=FullChainBenchmark.__new__(FullChainBenchmark);b.checkpoints={}
+        c=FakeRpc();c.configure_endpoints({c.urls[0]:dict(max_log_blocks=2)})
+        original=c.rpc;spans=[]
+        def rpc(method,params,**kwargs):
+            if method=='eth_getLogs':
+                spans.append((int(params[0]['fromBlock'],16),int(params[0]['toBlock'],16)))
+                assert kwargs['result_validator']([])
+                return []
+            return original(method,params,**kwargs)
+        c.rpc=rpc
+        with ThreadPoolExecutor(max_workers=4) as b.block_pool:
+            self.assertEqual(b._evm_batch_from_endpoint(SimpleNamespace(rpc=c),10,14),(5,0))
+        self.assertEqual(spans,[(10,11),(12,13),(14,14)])
+        self.assertEqual(set(b.batch_hashes),set(range(10,15)))
+
     def test_batch_counts_every_block_and_transfer_log(self):
         with tempfile.TemporaryDirectory() as directory:
             config = Path(directory) / "chains.json"

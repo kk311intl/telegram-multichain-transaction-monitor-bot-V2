@@ -8,6 +8,31 @@ from monitor.rpc import JsonClient
 
 
 class AdaptiveRpcTest(unittest.TestCase):
+    def test_embedded_batch_limit_cools_endpoint_and_retries_another(self):
+        import time
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        client=JsonClient(['https://limited.invalid','https://good.invalid'])
+        class Response:
+            headers={}
+            def __init__(self,body):
+                self.body=json.dumps(body).encode()
+                self.fp=SimpleNamespace(raw=SimpleNamespace(_sock=Mock()))
+            def __enter__(self):return self
+            def __exit__(self,*a):pass
+            def isclosed(self):return not self.body
+            def read1(self,*a):
+                value,self.body=self.body,b''
+                return value
+        good=[{'id':1,'result':'0x1'},{'id':2,'result':'0x2'}]
+        limited=[good[0],{'id':2,'error':{'code':-32007,'message':'20/second request limit reached'}}]
+        client._opener=Mock()
+        client._opener.open.side_effect=[Response(limited),Response(good)]
+        payload=[dict(jsonrpc='2.0',id=i,method='eth_call',params=[]) for i in (1,2)]
+        self.assertEqual(client.post(payload),good)
+        self.assertGreater(client.endpoint_retry_at[client.urls[0]],time.monotonic())
+        self.assertEqual(client._opener.open.call_count,2)
+
     def test_slow_candidate_leaves_time_for_only_other_rpc(self):
         from unittest.mock import patch
         clock = [1000.0]

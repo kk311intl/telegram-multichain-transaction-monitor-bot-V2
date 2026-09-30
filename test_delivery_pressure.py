@@ -75,10 +75,11 @@ class DeliveryPressureTest(unittest.TestCase):
             self.assertEqual(rate.background_remaining(100),0)
             self.assertAlmostEqual(rate.remaining(poll=True),10)
 
-    def test_pump_skips_cooling_slots_and_polls_empty_accounts_once_per_second(self):
+    def test_pump_skips_cooling_slots_and_rechecks_due_accounts_once_per_second(self):
         from concurrent.futures import Future
         from unittest.mock import Mock
         rate=TelegramRate()
+        self.store.save_event(self.event,False,'',user_ids={100,200})
         rate.cooldown(60,chat=200)
         pump=NotificationPump(SimpleNamespace(telegram=SimpleNamespace(rate=rate)),self.path,100,{})
         pump.pool.shutdown(wait=True)

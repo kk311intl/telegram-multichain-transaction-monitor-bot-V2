@@ -22,8 +22,17 @@ def remove_overloaded(store, now=None, limit=20, usage_notice=''):
     if now < float(store.meta('telegram_cooldown_until','0'))+120:
         return []
     removed=[]
-    for row in store.addresses(user_id=-1):
-        if now < json.loads(store.meta('telegram_chat_cooldowns','{}')).get(str(row['user_id']),0)+120:
+    # Start at the partial pending-delivery index, not the complete address book.
+    candidates = store.db.execute('''SELECT a.* FROM event_deliveries d
+        JOIN events e ON e.event_id=d.event_id
+        JOIN addresses a ON a.user_id=d.user_id AND a.address=e.address
+          AND (a.chain=e.chain OR (a.chain='evm' AND e.chain<>'tron'))
+        JOIN authorized_users u ON u.user_id=a.user_id
+        WHERE d.notified=0 AND d.notify_dead=0 AND e.filtered=0 AND e.orphaned=0 AND a.enabled=1
+        GROUP BY a.id HAVING COUNT(*)>?''',(limit,)).fetchall()
+    cooldowns = json.loads(store.meta('telegram_chat_cooldowns','{}'))
+    for row in candidates:
+        if now < cooldowns.get(str(row['user_id']),0)+120:
             continue
         if not row['enabled'] or measure(store,row,now,limit) is None:
             continue

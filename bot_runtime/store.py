@@ -75,15 +75,20 @@ def retire_unsupported_chains(database_path: Path, supported: set[str]) -> list[
 
 
 class Store:
-    def __init__(self, path: Path, owner_user_id: int | None = None):
+    def __init__(self, path: Path, owner_user_id: int | None = None, *, initialize=True):
         self.owner_user_id = owner_user_id
         path.parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(path)
-        self.db.row_factory = sqlite3.Row
-        self.db.execute("PRAGMA journal_mode=WAL")
-        self.db.execute("PRAGMA foreign_keys=ON")
-        self.db.execute("PRAGMA busy_timeout=5000")
-        initialize_schema(self.db, owner_user_id)
+        try:
+            self.db.row_factory = sqlite3.Row
+            self.db.execute("PRAGMA journal_mode=WAL")
+            self.db.execute("PRAGMA foreign_keys=ON")
+            self.db.execute("PRAGMA busy_timeout=5000")
+            if initialize:
+                initialize_schema(self.db, owner_user_id)
+        except Exception:
+            self.db.close()
+            raise
 
     def _user(self, user_id: int | None) -> int | None:
         return self.owner_user_id if user_id is None else int(user_id)
@@ -697,6 +702,22 @@ class Store:
             "SELECT COUNT(*) FROM events WHERE filtered=1 AND orphaned=0"
         ).fetchone()[0])
 
+    def notification_users(self):
+        """Only users with due work; idle registrations do not enter the delivery loop."""
+        now = int(time.time())
+        return [r[0] for r in self.db.execute('''SELECT user_id FROM (
+            SELECT d.user_id FROM event_deliveries d JOIN events e USING(event_id)
+              WHERE d.notified=0 AND d.notify_dead=0 AND d.notify_next_at<=?
+                AND e.filtered=0 AND e.orphaned=0
+            UNION SELECT d.user_id FROM event_deliveries d JOIN events e USING(event_id)
+              WHERE d.notified=1 AND d.telegram_message_id>0 AND d.edit_dead=0 AND d.edit_next_at<=?
+                AND (CASE WHEN e.orphaned=1 THEN 'orphaned' WHEN e.filtered=1 THEN 'filtered'
+                     ELSE e.confirmation_state END)<>d.message_state
+            UNION SELECT user_id FROM pressure_alerts WHERE sent=0 AND next_try<=?
+            ) q WHERE EXISTS (
+                SELECT 1 FROM authorized_users u WHERE u.user_id=q.user_id)
+            ORDER BY user_id''', (now,now,now))]
+
     def pending_notifications(
         self, limit: int = 100, user_id: int | None = None,
     ) -> list[sqlite3.Row]:
@@ -779,53 +800,34 @@ class Store:
     def cleanup(self, now: int | None = None, keep_disposable: int = 25_000,
                 obsolete_days: int = 7, confirmed_days: int = 30) -> int:
         current = int(time.time()) if now is None else now
-        with self.db:
-            before = self.db.total_changes
-            if self.owner_user_id is not None:
-                self.db.execute(
-                    "DELETE FROM events WHERE filtered=1 AND created_at<?", (current - obsolete_days * 86400,)
-                )
-                self.db.execute(
-                    "DELETE FROM events WHERE confirmation_state='confirmed' AND filtered=0 "
-                    "AND created_at<? AND NOT EXISTS (SELECT 1 FROM event_deliveries d "
-                    "WHERE d.event_id=events.event_id AND d.notified=0 AND d.notify_dead=0)",
-                    (current - confirmed_days * 86400,),
-                )
-                self.db.execute(
-                    "DELETE FROM events WHERE orphaned=1 AND created_at<?",
-                    (current - obsolete_days * 86400,),
-                )
-                self.db.execute(
-                    "DELETE FROM events WHERE event_id IN (SELECT e.event_id FROM events e "
-                    "WHERE e.filtered=1 OR e.orphaned=1 OR (e.confirmation_state='confirmed' "
-                    "AND NOT EXISTS (SELECT 1 FROM event_deliveries d WHERE d.event_id=e.event_id "
-                    "AND d.notified=0 AND d.notify_dead=0)) ORDER BY e.created_at DESC "
-                    "LIMIT -1 OFFSET ?)", (keep_disposable,),
-                )
-            else:
-                self.db.execute(
-                    "DELETE FROM events WHERE filtered=1 AND created_at<?", (current - obsolete_days * 86400,)
-                )
-                self.db.execute(
-                    "DELETE FROM events WHERE notified=1 AND confirmation_state='confirmed' "
-                    "AND created_at<?", (current - confirmed_days * 86400,)
-                )
-                self.db.execute(
-                    "DELETE FROM events WHERE (orphaned=1 OR notify_dead=1 OR edit_dead=1) "
-                    "AND created_at<?", (current - obsolete_days * 86400,)
-                )
-                self.db.execute(
-                    "DELETE FROM events WHERE event_id IN ("
-                    "SELECT event_id FROM events WHERE filtered=1 OR orphaned=1 "
-                    "OR notify_dead=1 OR edit_dead=1 "
-                    "OR (notified=1 AND confirmation_state='confirmed') "
-                    "ORDER BY created_at DESC LIMIT -1 OFFSET ?)",
-                    (keep_disposable,),
-                )
-            self.db.execute(
-                "DELETE FROM traffic_buckets WHERE bucket<?", (current - 25 * 3600,)
-            )
-            deleted = self.db.total_changes - before
+        if self.owner_user_id is not None:
+            confirmed = """e.filtered=0 AND e.confirmation_state='confirmed' AND NOT EXISTS (
+                SELECT 1 FROM event_deliveries d WHERE d.event_id=e.event_id
+                AND d.notified=0 AND d.notify_dead=0)"""
+            obsolete = "e.filtered=1 OR e.orphaned=1"
+        else:
+            confirmed = "e.notified=1 AND e.confirmation_state='confirmed'"
+            obsolete = "e.filtered=1 OR e.orphaned=1 OR e.notify_dead=1 OR e.edit_dead=1"
+        # Bound each write transaction; SQLite reuses freed pages, no blocking VACUUM.
+        batches = [
+            (f"""DELETE FROM events WHERE event_id IN (
+                SELECT e.event_id FROM events e WHERE (({obsolete}) AND e.created_at<?)
+                  OR (({confirmed}) AND e.created_at<?)
+                ORDER BY e.created_at LIMIT 1000)""",
+             (current-obsolete_days*86400,current-confirmed_days*86400)),
+            (f"""DELETE FROM events WHERE event_id IN (
+                SELECT e.event_id FROM events e WHERE ({obsolete}) OR ({confirmed})
+                ORDER BY e.created_at DESC LIMIT 1000 OFFSET ?)""", (keep_disposable,)),
+            ("DELETE FROM traffic_buckets WHERE rowid IN (SELECT rowid FROM traffic_buckets WHERE bucket<? LIMIT 1000)",
+             (current-25*3600,)),
+            ("DELETE FROM pressure_alerts WHERE address_id IN (SELECT address_id FROM pressure_alerts WHERE sent=1 AND created_at<? LIMIT 1000)",
+             (current-obsolete_days*86400,)),
+        ]
+        before = self.db.total_changes
+        for statement, args in batches:
+            with self.db:
+                self.db.execute(statement,args)
+        deleted = self.db.total_changes-before
         # These are opportunistic maintenance operations. Other per-chain
         # writers may briefly own the SQLite lock; retention itself has already
         # committed and must not be reported as failed for a busy checkpoint.

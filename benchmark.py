@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 
 from block_validation import ChainMismatch, header, evm_header, tron_header, check_evm_logs
 from match_feed import MatchFeed, evm_hits, tron_hits
+from evm_receipts import BlockReceipts
 from scanner_adapters import EvmAdapter, TronAdapter, TRANSFER_TOPIC, build_adapter
 
 
@@ -270,13 +271,22 @@ class FullChainBenchmark:
             if previous is not None and parent != previous:
                 raise ChainMismatch("EVM parent continuity mismatch")
             previous = current
+        receipts = BlockReceipts(adapter.rpc,blocks)
         def valid_logs(value):
-            check_evm_logs(blocks, value, lambda txid: adapter.rpc.rpc('eth_getTransactionReceipt', [txid]),
-                           reconcile_receipts=getattr(adapter, 'name', '') == 'hyperliquid')
+            check_evm_logs(blocks, value, receipts,
+                           reconcile_receipts=getattr(adapter, 'verify_receipt_logs', False))
             return all(log.get('topics') and str(log['topics'][0]).lower() == TRANSFER_TOPIC for log in value)
-        logs = adapter.rpc.rpc("eth_getLogs", [{
-            "fromBlock": hex(start), "toBlock": hex(end), "topics": [TRANSFER_TOPIC],
-        }], result_validator=valid_logs)
+        logs = []
+        limit = adapter.rpc.log_range_limit()
+        for first in range(start,end+1,limit):
+            last = min(end,first+limit-1)
+            def validate_range(value):
+                if any(not first <= int(log.get('blockNumber','-1'),16) <= last for log in value):
+                    raise ChainMismatch('log outside requested range')
+                return valid_logs(value)
+            logs.extend(adapter.rpc.rpc("eth_getLogs", [{
+                "fromBlock": hex(first), "toBlock": hex(last), "topics": [TRANSFER_TOPIC],
+            }], result_validator=validate_range))
         if feed:
             feed.submit(evm_hits(blocks,logs,watched))
         self.batch_hashes = {h: b["hash"].lower() for h,b in blocks.items()}

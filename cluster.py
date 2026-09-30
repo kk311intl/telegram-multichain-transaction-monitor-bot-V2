@@ -87,6 +87,8 @@ class CoordinatorHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        if status == 503:
+            self.send_header("Retry-After", "1")
         self.end_headers()
         self.wfile.write(body)
 
@@ -94,7 +96,10 @@ class CoordinatorHandler(BaseHTTPRequestHandler):
         if self.path == "/health":
             self._reply(200, {"ok": True})
         elif self.path == "/status" and self._known_ip():
-            self._reply(200, self.server.store.status())  # type: ignore[attr-defined]
+            try:
+                self._reply(200, self.server.store.status())
+            except sqlite3.Error as exc:
+                self._database_unavailable(exc)
         else:
             self._reply(404, {"error": "not found"})
 
@@ -125,8 +130,8 @@ class CoordinatorHandler(BaseHTTPRequestHandler):
                     self._reply(503, {"error": "Bot feed unavailable"})
                     return
                 chain = payload.get("chain")
-                now = self.server.store.clock_wall + time.monotonic() - self.server.store.clock_mono
                 lease = next((r for r in self.server.store.status()["leases"] if r["chain_name"] == chain), None)
+                now = self.server.store.clock_wall + time.monotonic() - self.server.store.clock_mono
                 if lease is None or lease["disabled"] or lease["target"] is not None or lease["owner_node"] != node_id or type(payload.get("epoch")) is not int or payload["epoch"] != lease["epoch"] or now >= lease["expires"]:
                     self._reply(403, {"error": "inactive or foreign lease"})
                     return
@@ -141,8 +146,15 @@ class CoordinatorHandler(BaseHTTPRequestHandler):
                 node_id, payload.get("metrics", {}),
             )
             self._reply(200, {"assignments": assignments, "server_time": int(time.time())})
+        except sqlite3.Error as exc:
+            self._database_unavailable(exc)
         except (ValueError, KeyError, TypeError, RecursionError, json.JSONDecodeError) as exc:
             self._reply(400, {"error": str(exc)})
+
+    def _database_unavailable(self, exc):
+        # Error messages can contain private paths; log only SQLite's numeric code.
+        print(f'coordinator database unavailable route={self.path} code={getattr(exc, "sqlite_errorcode", None)}', flush=True)
+        self._reply(503, {'error': 'database temporarily unavailable'})
 
     def log_message(self, fmt: str, *args: Any) -> None:
         if len(args) > 1 and str(args[1]) != "200":
@@ -200,7 +212,13 @@ def run_coordinator(args: argparse.Namespace) -> int:
         server.bot_thread = threading.Thread(target=bot_main, daemon=True, name="telegram")
         server.bot_thread.start()
     print(f"coordinator listening on {args.bind}:{args.port}", flush=True)
-    server.serve_forever()
+    # Keep the WAL open between HTTP connections without holding a transaction.
+    with closing(store.connect()) as keeper:
+        keeper.execute('SELECT count(*) FROM sqlite_master').fetchone()
+        try:
+            server.serve_forever()
+        finally:
+            server.server_close()
     return 0
 
 

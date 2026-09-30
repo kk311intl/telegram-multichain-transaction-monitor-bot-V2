@@ -1,8 +1,9 @@
 """Structural and cross-response checks; public RPC is still the trust root."""
 import re
+from monitor.rpc import RpcValidationError
 
 
-class ChainMismatch(RuntimeError):
+class ChainMismatch(RpcValidationError):
     pass
 
 

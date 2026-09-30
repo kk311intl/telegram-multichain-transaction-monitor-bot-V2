@@ -15,6 +15,21 @@ NODE_TIMEOUT = 45
 MAX_ROLLBACK = 128
 
 
+def retry_read(operation):
+    """Retry only reads; never replay a possibly committed mutation."""
+    for attempt in range(3):
+        try:
+            return operation()
+        except sqlite3.OperationalError as exc:
+            code = getattr(exc, 'sqlite_errorcode', None)
+            if code is None:  # Python 3.10 does not expose SQLite error codes.
+                code = {'database is locked': 5, 'database table is locked': 6,
+                        'unable to open database file': 14}.get(str(exc), 0)
+            if code & 255 not in (5, 6, 14) or attempt == 2:
+                raise
+            time.sleep((.02, .05)[attempt])
+
+
 def validate_config(config):
     nodes, chains = config['nodes'], config['chains']
     if not nodes or not chains or config['primary_node'] not in nodes:
@@ -78,7 +93,7 @@ class LeaseStore:
 
     @staticmethod
     def read_status(path):
-        with closing(sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True)) as db:
+        with closing(sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True, timeout=.2)) as db:
             db.row_factory = sqlite3.Row
             nodes = []
             for row in db.execute('SELECT * FROM nodes ORDER BY node_id'):
@@ -88,7 +103,7 @@ class LeaseStore:
             return {'nodes': nodes, 'leases': [dict(r) for r in db.execute('SELECT * FROM leases ORDER BY chain_name')]}
 
     def status(self):
-        return self.read_status(self.path)
+        return retry_read(lambda: self.read_status(self.path))
 
     def heartbeat(self, node_id, metrics, now=None):
         if node_id not in self.config['nodes'] or not isinstance(metrics, dict) or len(metrics) > len(self.config['chains']):

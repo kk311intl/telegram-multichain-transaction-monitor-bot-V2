@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import copy
 import http.client
 import socket
@@ -17,6 +18,10 @@ from .rpc_policy import RateLimit, retry_seconds
 
 
 RPC_RETRY_DELAYS = (15, 30, 60, 120, 300)
+# Clients in one process share explicit provider budgets; scanner processes have
+# independent budgets, so deployments must divide an IP-wide limit between them.
+_PROVIDER_LOCK = threading.Lock()
+_PROVIDER_GATES = {}
 
 
 def rpc_urls(config):
@@ -118,12 +123,22 @@ class RpcRequestError(RuntimeError):
         self.reported_urls = set()
 
 
+class RpcMethodUnavailable(RpcRequestError):
+    pass
+
+
+class RpcValidationError(RuntimeError):
+    """Trusted local diagnostics only; never include raw provider responses."""
+
+
 def rpc_error(error):
     """Keep provider messages (which can echo credentials) out of errors/logs."""
     code = error.get('code') if isinstance(error, dict) else None
     message = str(error.get('message', '') if isinstance(error, dict) else error).lower()
-    limited = code == 429 or any(text in message for text in ('rate limit', 'too many requests', 'quota exceeded'))
+    limited = code == 429 or any(text in message for text in ('rate limit', 'request limit', 'too many requests', 'quota exceeded'))
     label = str(code) if type(code) is int else 'provider error'
+    if code == -32601 and not limited:
+        return RpcMethodUnavailable('method unsupported')
     return RpcRequestError('JSON-RPC ' + label, 60 if limited else 0)
 
 class RequestStats:
@@ -196,10 +211,52 @@ class JsonClient:
         self.endpoint_error_score: dict[str, float] = {candidate: 0.0 for candidate in self.urls}
         self.endpoint_retry_at: dict[str, float] = {candidate: 0.0 for candidate in self.urls}
         self.endpoint_limits = {candidate: RateLimit() for candidate in self.urls}
+        self.endpoint_rules = {}
+        self.unsupported_methods = {}
         self.health_checked_at = 0
         self.batch_performance = {}
         self._batch_trial_at = 0.0
         self._opener = urllib.request.build_opener(RpcHTTPSHandler(), RpcNoRedirect())
+
+    def configure_endpoints(self, rules):
+        if not isinstance(rules, dict) or any(url not in self.urls for url in rules):
+            raise ValueError('rpc_limits must reference configured endpoints')
+        for url, rule in rules.items():
+            if not isinstance(rule, dict) or set(rule)-{'min_interval_seconds','max_log_blocks','provider'}:
+                raise ValueError('invalid rpc_limits fields')
+            interval = rule.get('min_interval_seconds', 0)
+            blocks = rule.get('max_log_blocks', 64)
+            provider = rule.get('provider', urlsplit(url).hostname)
+            if (type(interval) not in (int,float) or not math.isfinite(interval) or not 0 <= interval <= 60
+                    or type(blocks) is not int or not 1 <= blocks <= 10000
+                    or not isinstance(provider,str) or not 1 <= len(provider) <= 128):
+                raise ValueError('invalid rpc_limits values')
+            self.endpoint_rules[url] = dict(interval=interval, blocks=blocks, provider=provider)
+            with _PROVIDER_LOCK:
+                gate = _PROVIDER_GATES.setdefault(provider,dict(next=0.,cooling=0.,interval=0.))
+                gate['interval'] = max(gate['interval'], interval)
+
+    def log_range_limit(self):
+        indices = self._candidate_indices()
+        if not indices:
+            raise RpcRequestError('endpoint cooling')
+        return self.endpoint_rules.get(self.urls[indices[0]],{}).get('blocks',64)
+
+    def optional_rpc(self, method, params, result_validator=None):
+        """Pinned optional capability; only explicit -32601 permits fallback."""
+        indices = self._candidate_indices()
+        if len(indices) != 1:
+            raise ValueError('optional RPC requires one pinned endpoint')
+        key = (self.urls[indices[0]], method)
+        if self.unsupported_methods.get(key,0) > time.time():
+            return None
+        try:
+            return self.rpc(method,params,result_validator=result_validator)
+        except RpcMethodUnavailable:
+            with self._health_lock:
+                self.unsupported_methods[key] = time.time()+86400
+            self.save_health()
+            return None
 
     def start_background_probes(self, health_path=None):
         if self._probe_thread is not None:
@@ -262,6 +319,9 @@ class JsonClient:
                     self.endpoint_error_score[url] = min(12, max(0, float(item['score'])))
                     self.endpoint_retry_at[url] = time.monotonic() + max(0, min(86400,item['cooling']) - age)
                     self.endpoint_limits[url].restore(item.get('limit', {}), time.monotonic(), age)
+                    for method, expiry in item.get('unsupported_methods',{}).items():
+                        if method == 'eth_getBlockReceipts' and type(expiry) in (int,float) and time.time()<expiry<=time.time()+86400:
+                            self.unsupported_methods[(url,method)] = expiry
                     validated_at = item.get('validated_at')
                     if (self._validation_identity is not None
                             and data.get('validation_identity') == self._validation_identity
@@ -279,6 +339,7 @@ class JsonClient:
                 u:dict(healthy=self.endpoint_health[u], latency=self.endpoint_latency_ms[u], failures=self.endpoint_failures[u],
                        validated_at=(time.time() - (time.monotonic()-self._validated_endpoints[u])) if u in self._validated_endpoints else None,
                        batch=self.batch_performance.get(u),
+                       unsupported_methods={m:t for (url,m),t in self.unsupported_methods.items() if url==u and t>time.time()},
                        limit=self.endpoint_limits[u].snapshot(time.monotonic()),
                        score=self.endpoint_error_score[u], cooling=max(0,self.endpoint_retry_at[u]-time.monotonic())) for u in self.urls}}
         temporary = self._health_path.with_suffix(f'.{threading.get_ident()}.tmp')
@@ -337,12 +398,19 @@ class JsonClient:
             self.health_checked_at = int(time.time())
 
     def _mark_failure(self, url, exc):
+        if isinstance(exc,RpcMethodUnavailable):
+            return
         if isinstance(exc, RpcRequestError):
             if url in exc.reported_urls:
                 return
             exc.reported_urls.add(url)
         self.mark_health(url, False, retry_after=getattr(exc, 'retry_after', 0))
         if getattr(exc, 'retry_after', 0):
+            rule = self.endpoint_rules.get(url)
+            if rule:
+                with _PROVIDER_LOCK:
+                    gate = _PROVIDER_GATES[rule['provider']]
+                    gate['cooling'] = max(gate['cooling'],self.endpoint_retry_at[url])
             self.save_health()
 
     def set_endpoint_validator(self, validator: Callable[[str], None], identity: str | None = None) -> None:
@@ -493,9 +561,20 @@ class JsonClient:
                     raise exc
                 limit = self.endpoint_limits[url]
                 wait = limit.next_at - now
-                if wait <= 0:
-                    limit.next_at = now + limit.interval
-                    return
+                rule = self.endpoint_rules.get(url)
+                with _PROVIDER_LOCK:
+                    gate = _PROVIDER_GATES[rule['provider']] if rule else None
+                    if gate and gate['cooling'] > now:
+                        exc = RpcRequestError('provider cooling')
+                        exc.reported_urls.add(url)
+                        raise exc
+                    if gate:
+                        wait = max(wait,gate['next']-now)
+                    if wait <= 0:
+                        limit.next_at = now + limit.interval
+                        if gate:
+                            gate['next'] = now + gate['interval']
+                        return
             time.sleep(min(wait, self._remaining(), 0.25))
 
     @request_budget
@@ -535,6 +614,12 @@ class JsonClient:
                     chunks.append(chunk)
                 raw = b"".join(chunks)
             result = json.loads(raw)
+            if isinstance(payload,list):
+                for item in result if isinstance(result,list) else [result]:
+                    if isinstance(item,dict) and item.get('error'):
+                        failure=rpc_error(item['error'])
+                        if failure.retry_after:
+                            raise failure  # Provider-wide throttling can appear inside HTTP 200 batches.
             if isinstance(payload, dict) and payload.get('jsonrpc') == '2.0':
                 if (not isinstance(result, dict) or type(result.get('id')) is not type(payload.get('id'))
                         or result.get('id') != payload.get('id')):
@@ -583,10 +668,12 @@ class JsonClient:
                     if validator is not None:
                         try:
                             valid = validator(result)
-                        except RpcRequestError:
+                        except (RpcRequestError,RpcValidationError):
+                            self.stats.record_validation_failure()
                             raise
-                        except Exception:
-                            valid = False
+                        except Exception as exc:
+                            self.stats.record_validation_failure()
+                            raise RpcValidationError('validator failed: '+type(exc).__name__) from None
                         if not valid:
                             self.stats.record_validation_failure()
                             raise RuntimeError("RPC endpoint returned incomplete data")
@@ -635,10 +722,12 @@ class JsonClient:
                     if result_validator is not None:
                         try:
                             valid = result_validator(result)
-                        except RpcRequestError:
+                        except (RpcRequestError,RpcValidationError):
+                            self.stats.record_validation_failure()
                             raise
-                        except Exception:
-                            valid = False
+                        except Exception as exc:
+                            self.stats.record_validation_failure()
+                            raise RpcValidationError('validator failed: '+type(exc).__name__) from None
                         if not valid:
                             self.stats.record_validation_failure()
                             raise RuntimeError(f"{method}: inconsistent chain data")
